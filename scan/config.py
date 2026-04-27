@@ -32,8 +32,8 @@ MIN_AVG_VOLUME      = int(os.getenv("MIN_AVG_VOLUME",   "300000")) # R2
 MIN_ADR_PCT         = float(os.getenv("MIN_ADR_PCT",    "3.0"))    # R3
 
 # ─── Stage 2: Prior Explosive Move ────────────────────────────────────────────
-MIN_PRIOR_MOVE_PCT  = float(os.getenv("MIN_PRIOR_MOVE_PCT",  "30.0")) # R6
-MAX_PRIOR_MOVE_DAYS = int(os.getenv("MAX_PRIOR_MOVE_DAYS",   "40"))   # R6
+MIN_PRIOR_MOVE_PCT  = float(os.getenv("MIN_PRIOR_MOVE_PCT",  "25.0")) # R6 — lowered from 30% (2026-04-27)
+MAX_PRIOR_MOVE_DAYS = int(os.getenv("MAX_PRIOR_MOVE_DAYS",   "60"))   # R6 — extended from 40 days (2026-04-27)
 MIN_VOL_SURGE_RATIO = float(os.getenv("MIN_VOL_SURGE_RATIO", "2.0"))  # R7
 MAX_FROM_52W_HIGH   = float(os.getenv("MAX_FROM_52W_HIGH",   "20.0")) # R9 — within 20% of 52w high
 

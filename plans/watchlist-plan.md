@@ -30,7 +30,7 @@ a breakout** (within 2–5% of pivot):
 - Not OTC / pink sheets
 
 ### Stage 2: Prior Explosive Move
-- Gained ≥ 30% from a low within the last 40 trading days
+- Gained ≥ **25%** from a low within the last **60 trading days** *(updated 2026-04-27: was 30% / 40 days)*
 - At least 1 day during the move with volume ≥ 2× its 20-day average
 - Currently within 20% of its 52-week high
 

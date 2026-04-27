@@ -30,7 +30,7 @@ Based on Stages 5–8 of `qullamaggie/breakouts/Rules.MD`:
 | R23 | Price has broken above the high of the consolidation base (pivot price) |
 | R24 | Breakout volume ≥ 150% of 20-day average volume |
 | R25 | Breakout candle closes within 5% of its high (strong close) |
-| R6–R10 | Prior move of ≥ 30% within last 40 trading days |
+| R6–R10 | Prior move of ≥ 25% within last 60 trading days *(updated 2026-04-27)* |
 | R11–R12 | Base depth ≤ 15%, duration 5–40 days |
 | R19 | Average base volume ≤ 60% of 50-day average |
 

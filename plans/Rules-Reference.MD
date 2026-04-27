@@ -12,7 +12,7 @@
 | **R3** | Universe | Average Daily Range (ADR%) ≥ 3% | Enough daily movement for profit | ✅ |
 | **R4** | Universe | Not OTC / pink sheets | Liquid exchange only | — |
 | **R5** | Universe | Market cap ≥ $300M preferred | Institutional-quality names | — |
-| **R6** | Prior Move | Price ≥ +30% from a recent low | Within 40 trading days (8 weeks) | ✅ |
+| **R6** | Prior Move | Price ≥ +25% from a recent low ~~(was 30%)~~ | Within 60 trading days ~~(was 40)~~ | ✅ |
 | **R7** | Prior Move | ≥ 1 day with volume ≥ 2× 20-day average during the move | Confirms institutional buying | ✅ |
 | **R8** | Prior Move | Clear catalyst (earnings, news, FDA, contract) | Optional — strongly preferred | — |
 | **R9** | Prior Move | Stock within 10–20% of its 52-week high | Must be setting up near highs | ✅ |
@@ -76,8 +76,8 @@ Modify in `scan/config.py` or override via `scan/.env`:
 | `MIN_PRICE` | $5.00 | R1 |
 | `MIN_AVG_VOLUME` | 300,000 | R2 |
 | `MIN_ADR_PCT` | 3.0% | R3 |
-| `MIN_PRIOR_MOVE_PCT` | 30% | R6 |
-| `MAX_PRIOR_MOVE_DAYS` | 40 | R6 |
+| `MIN_PRIOR_MOVE_PCT` | ~~30%~~ **25%** | R6 |
+| `MAX_PRIOR_MOVE_DAYS` | ~~40~~ **60** | R6 |
 | `MIN_VOL_SURGE_RATIO` | 2.0× | R7 |
 | `MAX_FROM_52W_HIGH` | 20% | R9 |
 | `MIN_BASE_DAYS` | 5 | R11 |
@@ -112,6 +112,15 @@ R36–R42  Exit Management      → scale out at 2R/3R, trail 10d MA, exit faile
     ↓
 R43–R46  Market Filter        → S&P above MAs, low VIX, sector uptrend
 ```
+
+---
+
+## Criteria Change Log
+
+| Date | Parameter | Old Value | New Value | Reason |
+|------|-----------|-----------|-----------|--------|
+| 2026-04-27 | `MIN_PRIOR_MOVE_PCT` | 30% | 25% | Analysis showed 25 additional stocks would qualify; prior move still confirmed with volume surge |
+| 2026-04-27 | `MAX_PRIOR_MOVE_DAYS` | 40 days | 60 days | Analysis showed 29 additional stocks would qualify; valid setups often form 10–12 weeks after the move |
 
 ---
 
