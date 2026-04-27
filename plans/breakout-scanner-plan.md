@@ -12,8 +12,11 @@ The breakout scanner differs from the watchlist in one key way:
 - **Watchlist** = stocks *approaching* a breakout (setting up within 5% of pivot)
 - **Breakout scanner** = stocks that are **breaking out RIGHT NOW** (price crossing the pivot on volume)
 
-A stock can appear on the breakout scanner without being on the prior day's watchlist —
-for example, it may have been missed in screening or formed a setup very quickly.
+The scanner runs every **30 minutes during market hours** and checks only the stocks on
+**today's watchlist**. This keeps the scan fast, focused, and low-cost — no need to screen
+the full market universe intraday. The watchlist (generated at 8 AM EST) provides the
+pre-qualified candidate list; the breakout scanner monitors those candidates throughout
+the day and fires when one triggers.
 
 ---
 
@@ -105,48 +108,77 @@ breakout_scanner/
 ```python
 # Pseudocode for main breakout scanner flow
 
-1. Load ticker universe
-2. Fetch previous day's OHLCV data (or intraday if running during market hours)
-3. For each ticker:
-   a. Compute moving averages, ATR, ADR%, volume averages
-   b. Run Stage 1 universe filter → skip if fail
-   c. Detect prior explosive move (R6–R10) → skip if none
-   d. Identify consolidation base → skip if no valid base
-   e. Check volume contraction in base
-   f. CHECK BREAKOUT:
-      - Did price close above the base high (pivot)?
-      - Was volume ≥ 150% of 20-day average?
-      - Did candle close within 5% of its high?
-   g. If breakout confirmed:
-      - Identify pattern type (VCP, HTF, FlatBase, Pennant, EP)
-      - Assign grade (A+, A, B, C)
+1. Check market hours — exit immediately if market is closed or holiday
+2. Load today's watchlist from SQL Server
+   → SELECT ticker, pivot_price, pattern_type, pattern_grade
+     FROM watchlist_entries WHERE scan_date = TODAY
+   → If watchlist is empty (8 AM job hasn't run yet), exit and log warning
+3. For each ticker on today's watchlist:
+   a. Fetch latest intraday price + cumulative volume (via yfinance or Polygon)
+   b. Fetch daily OHLCV history (for MA / ATR calculations)
+   c. Skip if already logged as a breakout today (avoid duplicate alerts)
+   d. CHECK BREAKOUT:
+      - Is current price > pivot_price? (price crossed the base high)
+      - Is cumulative intraday volume ≥ 150% of 20-day average volume?
+      - Is current candle within 5% of its intraday high?
+   e. If breakout confirmed:
+      - Identify pattern type (inherited from watchlist entry)
+      - Compute exact values: volume ratio, % above pivot, current price
       - Record ALL exact reasons with values (e.g., "Volume = 287% of 20d avg")
-      - Compute entry price, stop price, position size suggestions
-      - Write to SQL Server
-4. Output summary of today's breakouts
-5. (Optional) Send notification via SMS/email
+      - Compute stop price (base low − 0.5%), R/R ratio
+      - Write to SQL Server breakout_entries (link to watchlist_entry_id)
+      - Send notification (SMS/email)
+4. Log run summary: X stocks checked, Y new breakouts detected
+```
+
+### Key Logic: Avoid Duplicate Alerts
+```python
+# Before writing a breakout, check if it was already recorded today
+existing = db.query(
+    "SELECT id FROM breakout_entries WHERE ticker = ? AND scan_date = ?",
+    [ticker, today]
+)
+if existing:
+    continue  # Already alerted — skip
 ```
 
 ---
 
 ## When to Run
 
-The scanner can run in two modes:
+The scanner runs **every 30 minutes during market hours** (9:30 AM – 4:00 PM EST, weekdays).
+It only checks the stocks on today's watchlist, so each run is fast (typically < 30 seconds).
 
-### Mode 1: End-of-Day (Recommended for beginners)
-- Run at **4:30 PM EST** after market close
-- Uses final daily candle data
-- Confirms breakout candles are genuine (full close, not intraday noise)
-- Cron: `30 21 * * 1-5` (21:30 UTC)
+### Market Hours Schedule
 
-### Mode 2: Intraday (Advanced)
-- Run at **10:00 AM EST** (after first 30 minutes) using intraday data
-- Detects Opening Range High (ORH) breakouts
-- Requires intraday data source (Polygon.io or Alpaca)
-- Allows same-day entry if criteria met
-- Cron: `0 15 * * 1-5` (15:00 UTC)
+| Run | EST | UTC |
+|-----|-----|-----|
+| Open | 9:30 AM | 14:30 |
+| Every 30 min | 10:00, 10:30 … 3:30 PM | 15:00–20:30 |
+| Final (close) | 4:00 PM | 21:00 |
 
-**Suggested approach:** Start with end-of-day, add intraday later once history is building.
+### Cron Job (runs every 30 min, Mon–Fri, 9:30 AM–4:00 PM EST)
+
+```bash
+# 9:30 AM – 4:00 PM EST = 14:30 – 21:00 UTC
+# Run at :00 and :30 past the hour, between 14:00–21:00 UTC
+0,30 14-20 * * 1-5 /usr/bin/python3 /path/to/breakout_scanner/breakout_scanner.py >> /var/log/breakout_scanner.log 2>&1
+# Extra run at 21:00 UTC (4:00 PM EST close)
+0 21 * * 1-5 /usr/bin/python3 /path/to/breakout_scanner/breakout_scanner.py >> /var/log/breakout_scanner.log 2>&1
+```
+
+> **Note:** The script should check `datetime.now()` at startup and exit immediately if
+> the market is closed or it's a market holiday — this prevents unnecessary runs.
+
+### Intraday Data Source
+Since the scanner runs during market hours it needs **live or delayed intraday prices**.
+Recommended options (in order of preference):
+
+| Source | Cost | Delay | Notes |
+|--------|------|-------|-------|
+| `yfinance` | Free | ~15 min | Good enough for 30-min polling |
+| Polygon.io Starter | $29/mo | Real-time | Best for production |
+| Alpaca (free tier) | Free | Real-time | Requires brokerage account |
 
 ---
 
@@ -364,14 +396,30 @@ This way Bedrock is used sparingly (once/week) for strategic analysis, keeping c
 
 ---
 
-## Scheduling
+## Scheduling (Full System)
 
 ```bash
-# End-of-day breakout scan — 4:30 PM EST (21:30 UTC), weekdays
-30 21 * * 1-5 /usr/bin/python3 /path/to/breakout_scanner/breakout_scanner.py >> /var/log/breakout_scanner.log 2>&1
+# 1. Watchlist generator — 8:00 AM EST (13:00 UTC), weekdays
+0 13 * * 1-5 /usr/bin/python3 /path/to/watchlist/watchlist_scanner.py >> /var/log/watchlist.log 2>&1
 
-# Performance tracker — 5:00 PM EST (22:00 UTC), weekdays
-0 22 * * 1-5 /usr/bin/python3 /path/to/breakout_scanner/performance_tracker.py >> /var/log/breakout_perf.log 2>&1
+# 2. Breakout scanner — every 30 min during market hours (9:30 AM–4:00 PM EST)
+#    14:30–21:00 UTC = market hours
+0,30 14-20 * * 1-5 /usr/bin/python3 /path/to/breakout_scanner/breakout_scanner.py >> /var/log/breakout_scanner.log 2>&1
+0 21 * * 1-5 /usr/bin/python3 /path/to/breakout_scanner/breakout_scanner.py >> /var/log/breakout_scanner.log 2>&1
+
+# 3. Performance tracker — 4:30 PM EST (21:30 UTC), weekdays
+30 21 * * 1-5 /usr/bin/python3 /path/to/breakout_scanner/performance_tracker.py >> /var/log/breakout_perf.log 2>&1
+```
+
+### Daily Timeline
+
+```
+08:00 AM EST  → Watchlist scanner runs — loads today's candidates into SQL Server
+09:30 AM EST  → Market opens — breakout scanner starts polling every 30 min
+09:30–04:00   → Scanner checks watchlist stocks every 30 min for breakout signals
+               → Alerts fire immediately when a breakout is detected
+04:00 PM EST  → Market closes — final breakout scan run
+04:30 PM EST  → Performance tracker updates prior breakout entries with today's close
 ```
 
 ---
@@ -416,24 +464,26 @@ boto3>=1.34.0
 
 ---
 
-## Output: Daily Breakout Report
+## Output: Per-Run Breakout Alerts
 
-Each run produces:
+Each 30-minute run produces:
 
-1. **Database records** — full detail per breakout with all criteria values
-2. **CSV file** — `breakouts_YYYY-MM-DD.csv`
-3. **Console summary:**
+1. **Database records** — full detail per breakout with all criteria values (written once per ticker per day)
+2. **Immediate notification** — SMS or email when a new breakout is detected mid-day
+3. **Console/log summary** for each run:
 
 ```
-=== BREAKOUT SCAN — 2026-04-28 (End of Day) ===
-Scanned: 3,247 stocks
-Breakouts detected: 7
+=== BREAKOUT SCAN — 2026-04-28 10:30 AM EST ===
+Watchlist stocks checked: 14
+New breakouts detected: 2
 
-Ticker  Grade  Pattern    Price    Volume%  Prior Move  R/R    Reasons
-------  -----  ---------  ------   -------  ----------  -----  -------------------
-CELH    A+     VCP        $48.30   312%     +67% / 22d  3.2:1  Vol 3.1x, VCP 4-leg, near 52wk high
-SMCI    A      FlatBase   $29.10   198%     +41% / 30d  2.8:1  Base 6% deep, vol contraction -62%
-...
+Ticker  Grade  Pattern    Price    Volume%  Pivot    %Above  R/R    Alert
+------  -----  ---------  ------   -------  ------   ------  -----  ------
+CELH    A+     VCP        $48.30   312%     $47.50   +1.7%   3.2:1  ✅ BREAKOUT
+SMCI    A      FlatBase   $29.10   198%     $28.80   +1.0%   2.8:1  ✅ BREAKOUT
+
+Already alerted today: NVDA (10:00 AM)
+No trigger yet: AAPL, TSLA, CRWD (+9 others)
 ```
 
 ---
@@ -442,32 +492,37 @@ SMCI    A      FlatBase   $29.10   198%     +41% / 30d  2.8:1  Base 6% deep, vol
 
 | Phase | Work | Outcome |
 |-------|------|---------|
-| 1 | Build `data_fetcher.py` + `criteria.py` | Can evaluate any stock |
-| 2 | Build `breakout_scanner.py` | Detects breakouts with end-of-day data |
-| 3 | Connect SQL Server, write `db_writer.py` | History capturing begins |
-| 4 | Install cron job (4:30 PM mode) | Fully automated daily scan |
-| 5 | Build `performance_tracker.py` | Tracking post-breakout outcomes |
-| 6 | Run analysis SQL queries | Start refining criteria |
-| 7 | Add Bedrock weekly report (optional) | AI-assisted criteria refinement |
-| 8 | Upgrade to intraday mode (optional) | Same-day ORH entries |
+| 1 | Build watchlist scanner (see watchlist-plan.md) | Daily candidate list in SQL Server |
+| 2 | Build `data_fetcher.py` — intraday price + volume | Can fetch live quotes for a ticker |
+| 3 | Build `breakout_scanner.py` — reads watchlist from SQL | Detects breakouts against today's watchlist |
+| 4 | Connect SQL Server, write `db_writer.py` | Breakout history captured with dedup logic |
+| 5 | Install cron jobs (8 AM watchlist + 30-min scanner) | Fully automated intraday monitoring |
+| 6 | Add SMS/email notifications | Real-time alerts when breakout fires |
+| 7 | Build `performance_tracker.py` | Tracking post-breakout outcomes |
+| 8 | Run analysis SQL queries | Start refining criteria |
+| 9 | Add Bedrock weekly report (optional) | AI-assisted criteria refinement |
 
 ---
 
 ## Relationship to Watchlist
 
-These two systems complement each other:
+These two systems are now tightly coupled:
 
 ```
-Watchlist (8 AM)    → "These stocks are SETTING UP — watch them today"
-Breakout Scanner (4:30 PM) → "These stocks BROKE OUT today — log and track"
+Watchlist (8:00 AM)         → Scans full market, identifies setup candidates, loads into SQL Server
+Breakout Scanner (every 30 min) → Reads today's watchlist from SQL, monitors only those stocks
 
-Cross-reference:    Was today's breakout on yesterday's watchlist?
-                    If yes → setup was anticipated (higher quality signal)
-                    If no  → fast-forming or missed setup (still valid)
+Data flow:
+  watchlist_scanner.py  →  watchlist_entries (SQL)  →  breakout_scanner.py  →  breakout_entries (SQL)
 ```
 
-Both tables should be linked via `watchlist_entry_id` in `breakout_entries` so you can measure
-whether advance watchlist identification improves outcomes.
+Every breakout entry is linked to its watchlist entry via `watchlist_entry_id`, so you can
+always trace back exactly why a stock was being watched when it broke out.
+
+**What if the watchlist hasn't run yet?**
+If `breakout_scanner.py` starts before 8 AM has completed (rare edge case), it will find
+no rows for today in `watchlist_entries` and exit cleanly with a log message:
+`"No watchlist entries for today — skipping run."`
 
 ---
 
