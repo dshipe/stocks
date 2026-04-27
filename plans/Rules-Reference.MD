@@ -2,57 +2,60 @@
 
 > All rules in order, R1 through R46, with thresholds used in the scanner.
 > Full explanations: `Rules.MD` | Implementation: `scan/shared/criteria.py` | Config: `scan/config.py`
+>
+> **🔧 Modified rules:** R6 (prior move % and lookback window), R19 (volume contraction ratio) — see [Criteria Change Log](#criteria-change-log) below.
 
 ---
 
-| # | Stage | Rule | Threshold / Action | Scanner |
-|---|-------|------|--------------------|---------|
-| **R1** | Universe | Price ≥ $5.00 | Filter out penny stocks | ✅ |
-| **R2** | Universe | 20-day avg daily volume ≥ 300,000 shares | Institutional liquidity floor | ✅ |
-| **R3** | Universe | Average Daily Range (ADR%) ≥ 3% | Enough daily movement for profit | ✅ |
-| **R4** | Universe | Not OTC / pink sheets | Liquid exchange only | — |
-| **R5** | Universe | Market cap ≥ $300M preferred | Institutional-quality names | — |
-| **R6** | Prior Move | Price ≥ +25% from a recent low ~~(was 30%)~~ | Within 60 trading days ~~(was 40)~~ | ✅ |
-| **R7** | Prior Move | ≥ 1 day with volume ≥ 2× 20-day average during the move | Confirms institutional buying | ✅ |
-| **R8** | Prior Move | Clear catalyst (earnings, news, FDA, contract) | Optional — strongly preferred | — |
-| **R9** | Prior Move | Stock within 10–20% of its 52-week high | Must be setting up near highs | ✅ |
-| **R10** | Prior Move | Prior move ≥ 50% more than S&P 500 in same period | Market leadership confirmation | — |
-| **R11** | Base | Consolidation duration: 5–40 trading days | After the high of the prior move | ✅ |
-| **R12** | Base | Base depth ≤ 15% (high-to-low / high × 100) | Ideally ≤ 10% | ✅ |
-| **R13** | Base | No single candle body > 10% range in the base | No massive distribution days | — |
-| **R14** | Base | Price does not close below 50-day MA during base | Trend integrity | ✅ |
-| **R15** | Base | Price stays above 20-day MA for most of the base | Short-term trend intact | ✅ |
-| **R16** | Base | 10-day MA above 20-day MA during consolidation | Short-term bullish structure | ✅ |
-| **R17** | Base | At least 2 volume-contraction legs visible (VCP) | Each leg smaller than prior | — |
-| **R18** | Base | No earnings within base (unless earnings caused the prior move) | Avoids earnings surprise risk | — |
-| **R19** | Volume | Base avg volume ≤ 75% of 50-day average ~~(was 60%)~~ | Sellers exhausted | ✅ |
-| **R20** | Volume | ≥ 3 consecutive below-average volume days before breakout | Volume dry-up confirmed | ✅ |
-| **R21** | Volume | No high-volume down days in final 5 days of base | No institutional distribution | — |
-| **R22** | Volume | Volume declines as base narrows (VCP contraction visible) | Profile slopes downward | — |
-| **R23** | Breakout | Price breaks above high of consolidation base (pivot) | This is the buy trigger | ✅ |
-| **R24** | Breakout | Breakout volume ≥ 150% of 20-day average | Institutional demand confirmed | ✅ |
-| **R25** | Breakout | Candle closes within 5% of its high | Strong close = conviction | ✅ |
-| **R26** | Breakout | No earnings within 3 trading days of breakout | Avoids earnings gap risk | — |
-| **R27** | Breakout | S&P 500 / NASDAQ in uptrend on breakout day | Market tailwind | ✅ |
-| **R28** | Breakout | Intraday entry: break of Opening Range High (ORH) | Aggressive intraday trigger | — |
-| **R29** | Risk | Stop = below consolidation low − 0.5% buffer | Hard stop placement | ✅ |
-| **R30** | Risk | Stop distance ≤ 1× ATR-14 from entry | No overly wide stops | — |
-| **R31** | Risk | Max risk per trade = 0.5% of account (range 0.25–1%) | Dollar risk rule | — |
-| **R32** | Risk | Share size = Dollar Risk ÷ (Entry − Stop) | Standard sizing formula | — |
-| **R33** | Risk | Max overnight position = 20% of account per stock | Concentration limit | — |
-| **R34** | Risk | Do not buy > 1% of stock's average daily volume | Prevents slippage | — |
-| **R35** | Risk | Minimum R/R ≥ 2:1 before entry | (Target − Entry) / (Entry − Stop) | ✅ |
-| **R36** | Exit | At 2R profit: sell 1/3–1/2 of position | Lock in partial gain | — |
-| **R37** | Exit | After first partial sale: move stop to breakeven | Protect remaining position | — |
-| **R38** | Exit | At 3R profit: sell another 1/4 | Scale out further | — |
-| **R39** | Exit | Trail remainder with 10-day MA — exit on close below | Primary trailing stop | — |
-| **R40** | Exit | Alternative: trail with 20-day MA for extended moves | Larger trend trail | — |
-| **R41** | Exit | Exit full position if stock closes back below pivot | Failed breakout rule | ✅ |
-| **R42** | Exit | Do not hold through earnings without ≥ 30% cushion | Earnings event risk | — |
-| **R43** | Market | S&P 500 above its 50-day and 200-day MA | Broad market uptrend | ✅ |
-| **R44** | Market | No confirmed distribution phase in broad market | No overhead selling | — |
-| **R45** | Market | VIX < 30 preferred | Low fear environment | — |
-| **R46** | Market | Stock's sector is in an uptrend | Sector tailwind | — |
+| # | Stage | Rule | Original Criteria | Current Criteria | Modified | Scanner |
+|---|-------|------|-------------------|-----------------|----------|---------|
+| **R1** | Universe | Price minimum | ≥ $5.00 | ≥ $5.00 | | ✅ |
+| **R2** | Universe | Avg daily volume | ≥ 300,000 shares (20-day) | ≥ 300,000 shares (20-day) | | ✅ |
+| **R3** | Universe | ADR% minimum | ≥ 3% | ≥ 3% | | ✅ |
+| **R4** | Universe | Exchange | Not OTC / pink sheets | Not OTC / pink sheets | | — |
+| **R5** | Universe | Market cap | ≥ $300M preferred | ≥ $300M preferred | | — |
+| **R6** | Prior Move | Minimum move % | ≥ **30%** from a recent low | ≥ **25%** from a recent low | 🔧 2026-04-27 | ✅ |
+| **R6** | Prior Move | Move lookback window | Within **40** trading days | Within **60** trading days | 🔧 2026-04-27 | ✅ |
+| **R7** | Prior Move | Volume surge in move | ≥ 1 day with vol ≥ 2× avg | ≥ 1 day with vol ≥ 2× avg | | ✅ |
+| **R8** | Prior Move | Catalyst | Clear identifiable catalyst | Clear identifiable catalyst | | — |
+| **R9** | Prior Move | 52-week high proximity | Within 10–20% of 52w high | Within 20% of 52w high | | ✅ |
+| **R10** | Prior Move | Relative strength | ≥ 50% more than S&P 500 | ≥ 50% more than S&P 500 | | — |
+| **R11** | Base | Duration | 5–40 trading days | 5–40 trading days | | ✅ |
+| **R12** | Base | Depth | ≤ 15% (ideally ≤ 10%) | ≤ 15% (ideally ≤ 10%) | | ✅ |
+| **R13** | Base | Single candle body | ≤ 10% body range | ≤ 10% body range | | — |
+| **R14** | Base | 50-day MA | Price above 50d MA | Price above 50d MA | | ✅ |
+| **R15** | Base | 20-day MA | Price above 20d MA | Price above 20d MA | | ✅ |
+| **R16** | Base | MA alignment | 10d MA above 20d MA | 10d MA above 20d MA | | ✅ |
+| **R17** | Base | VCP legs | ≥ 2 contraction legs | ≥ 2 contraction legs | | — |
+| **R18** | Base | Earnings in base | No earnings in base | No earnings in base | | — |
+| **R19** | Volume | Base vol contraction | Base avg vol ≤ **60%** of 50d avg | Base avg vol ≤ **75%** of 50d avg | 🔧 2026-04-27 | ✅ |
+| **R20** | Volume | Consecutive low-vol days | ≥ 3 consecutive days | ≥ 3 consecutive days | | ✅ |
+| **R21** | Volume | Distribution days | No high-vol down days (last 5) | No high-vol down days (last 5) | | — |
+| **R22** | Volume | Volume profile | Declining as base narrows | Declining as base narrows | | — |
+| **R23** | Breakout | Price trigger | Above consolidation high (pivot) | Above consolidation high (pivot) | | ✅ |
+| **R24** | Breakout | Breakout volume | ≥ 150% of 20-day avg | ≥ 150% of 20-day avg | | ✅ |
+| **R25** | Breakout | Candle strength | Closes within 5% of candle high | Closes within 5% of candle high | | ✅ |
+| **R26** | Breakout | Earnings proximity | No earnings within 3 days | No earnings within 3 days | | — |
+| **R27** | Breakout | Market trend | S&P 500 / NASDAQ uptrend | S&P 500 / NASDAQ uptrend | | ✅ |
+| **R28** | Breakout | Intraday entry | Break of Opening Range High | Break of Opening Range High | | — |
+| **R29** | Risk | Stop placement | Base low − 0.5% buffer | Base low − 0.5% buffer | | ✅ |
+| **R30** | Risk | Stop distance | ≤ 1× ATR-14 | ≤ 1× ATR-14 | | — |
+| **R31** | Risk | Max risk per trade | 0.5% of account | 0.5% of account | | — |
+| **R32** | Risk | Position size | Dollar Risk ÷ (Entry − Stop) | Dollar Risk ÷ (Entry − Stop) | | — |
+| **R33** | Risk | Max position | 20% of account per stock | 20% of account per stock | | — |
+| **R34** | Risk | Volume impact | ≤ 1% of stock's ADV | ≤ 1% of stock's ADV | | — |
+| **R35** | Risk | Min R/R ratio | ≥ 2:1 | ≥ 2:1 | | ✅ |
+| **R36** | Exit | First partial sale | Sell 1/3–1/2 at 2R | Sell 1/3–1/2 at 2R | | — |
+| **R37** | Exit | Stop move | Move to breakeven after 2R | Move to breakeven after 2R | | — |
+| **R38** | Exit | Second partial sale | Sell 1/4 at 3R | Sell 1/4 at 3R | | — |
+| **R39** | Exit | Trail stop | 10-day MA close | 10-day MA close | | — |
+| **R40** | Exit | Alt trail | 20-day MA (extended trends) | 20-day MA (extended trends) | | — |
+| **R41** | Exit | Failed breakout | Exit on close below pivot | Exit on close below pivot | | ✅ |
+| **R42** | Exit | Earnings hold | Exit unless ≥ 30% cushion | Exit unless ≥ 30% cushion | | — |
+| **R43** | Market | S&P trend | Above 50d and 200d MA | Above 50d and 200d MA | | ✅ |
+| **R44** | Market | Distribution | No distribution phase | No distribution phase | | — |
+| **R45** | Market | VIX | VIX < 30 | VIX < 30 | | — |
+| **R46** | Market | Sector | Sector in uptrend | Sector in uptrend | | — |
 
 ---
 
@@ -61,9 +64,7 @@
 **✅ Implemented** — rule is checked in `scan/shared/criteria.py`
 **—** — not yet automated (manual check or future enhancement)
 
-Of the 46 rules, **16 are automated** in the current scanner. The remaining rules
-require either manual review, real-time data (earnings calendar, sector trend), or
-apply only at the trade management stage.
+Of the 46 rules, **16 are automated** in the current scanner.
 
 ---
 
@@ -71,36 +72,36 @@ apply only at the trade management stage.
 
 Modify in `scan/config.py` or override via `scan/.env`:
 
-| Setting | Default | Rule |
-|---------|---------|------|
-| `MIN_PRICE` | $5.00 | R1 |
-| `MIN_AVG_VOLUME` | 300,000 | R2 |
-| `MIN_ADR_PCT` | 3.0% | R3 |
-| `MIN_PRIOR_MOVE_PCT` | ~~30%~~ **25%** | R6 |
-| `MAX_PRIOR_MOVE_DAYS` | ~~40~~ **60** | R6 |
-| `MIN_VOL_SURGE_RATIO` | 2.0× | R7 |
-| `MAX_FROM_52W_HIGH` | 20% | R9 |
-| `MIN_BASE_DAYS` | 5 | R11 |
-| `MAX_BASE_DAYS` | 40 | R11 |
-| `MAX_BASE_DEPTH_PCT` | 15% | R12 |
-| `MAX_BASE_VOL_RATIO` | ~~60%~~ **75%** | R19 |
-| `MIN_CONSEC_LOW_VOL_DAYS` | 3 | R20 |
-| `MAX_DIST_FROM_PIVOT_PCT` | 5% | Watchlist trigger |
-| `MIN_BREAKOUT_VOL_RATIO` | 1.5× | R24 |
-| `MAX_CLOSE_FROM_HIGH_PCT` | 5% | R25 |
+| Setting | Original | Current | Rule | Modified |
+|---------|----------|---------|------|----------|
+| `MIN_PRICE` | $5.00 | $5.00 | R1 | |
+| `MIN_AVG_VOLUME` | 300,000 | 300,000 | R2 | |
+| `MIN_ADR_PCT` | 3.0% | 3.0% | R3 | |
+| `MIN_PRIOR_MOVE_PCT` | **30%** | **25%** | R6 | 🔧 2026-04-27 |
+| `MAX_PRIOR_MOVE_DAYS` | **40** | **60** | R6 | 🔧 2026-04-27 |
+| `MIN_VOL_SURGE_RATIO` | 2.0× | 2.0× | R7 | |
+| `MAX_FROM_52W_HIGH` | 20% | 20% | R9 | |
+| `MIN_BASE_DAYS` | 5 | 5 | R11 | |
+| `MAX_BASE_DAYS` | 40 | 40 | R11 | |
+| `MAX_BASE_DEPTH_PCT` | 15% | 15% | R12 | |
+| `MAX_BASE_VOL_RATIO` | **60%** | **75%** | R19 | 🔧 2026-04-27 |
+| `MIN_CONSEC_LOW_VOL_DAYS` | 3 | 3 | R20 | |
+| `MAX_DIST_FROM_PIVOT_PCT` | 5% | 5% | Watchlist trigger | |
+| `MIN_BREAKOUT_VOL_RATIO` | 1.5× | 1.5× | R24 | |
+| `MAX_CLOSE_FROM_HIGH_PCT` | 5% | 5% | R25 | |
 
 ---
 
 ## Stage Flow
 
 ```
-R1–R5    Universe Filter      → price, volume, ADR minimum bars
+R1–R5    Universe Filter      → price ≥ $5, vol ≥ 300k, ADR ≥ 3%
     ↓
-R6–R10   Prior Move           → 30%+ explosive move near 52w high
+R6–R10   Prior Move           → ≥25% move (🔧 was 30%) within 60 days (🔧 was 40) near 52w high
     ↓
 R11–R18  Base Quality         → tight consolidation 5–40 days, ≤15% depth
     ↓
-R19–R22  Volume Contraction   → base avg vol ≤ 60% of 50d avg
+R19–R22  Volume Contraction   → base avg vol ≤ 75% of 50d avg (🔧 was 60%)
     ↓
          Watchlist Trigger    → within 5% of pivot → add to watchlist
     ↓
@@ -117,11 +118,11 @@ R43–R46  Market Filter        → S&P above MAs, low VIX, sector uptrend
 
 ## Criteria Change Log
 
-| Date | Parameter | Old Value | New Value | Reason |
-|------|-----------|-----------|-----------|--------|
-| 2026-04-27 | `MIN_PRIOR_MOVE_PCT` | 30% | 25% | Analysis showed 25 additional stocks would qualify; prior move still confirmed with volume surge |
-| 2026-04-27 | `MAX_PRIOR_MOVE_DAYS` | 40 days | 60 days | Analysis showed 29 additional stocks would qualify; valid setups often form 10–12 weeks after the move |
-| 2026-04-27 | `MAX_BASE_VOL_RATIO` | 60% | 75% | Stage 4 was the binding constraint after prior move changes; loosened to capture more setups with adequate (not extreme) volume contraction |
+| Date | Parameter | Original Value | New Value | Reason |
+|------|-----------|----------------|-----------|--------|
+| 2026-04-27 | `MIN_PRIOR_MOVE_PCT` | 30% | 25% | Analysis of 516 tickers showed 25 additional stocks would qualify; prior move still confirmed with volume surge (R7) |
+| 2026-04-27 | `MAX_PRIOR_MOVE_DAYS` | 40 days | 60 days | Analysis showed 29 additional stocks would qualify; valid setups often form 10–12 weeks after the explosive move |
+| 2026-04-27 | `MAX_BASE_VOL_RATIO` | 60% | 75% | After prior move changes, Stage 4 became the binding constraint; loosened to capture setups with adequate but not extreme volume contraction |
 
 ---
 
