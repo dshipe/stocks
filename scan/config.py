@@ -43,7 +43,7 @@ MAX_BASE_DAYS       = int(os.getenv("MAX_BASE_DAYS",    "40"))    # R11
 MAX_BASE_DEPTH_PCT  = float(os.getenv("MAX_BASE_DEPTH_PCT", "15.0")) # R12
 
 # ─── Stage 4: Volume Contraction ──────────────────────────────────────────────
-MAX_BASE_VOL_RATIO      = float(os.getenv("MAX_BASE_VOL_RATIO",      "0.60")) # R19
+MAX_BASE_VOL_RATIO      = float(os.getenv("MAX_BASE_VOL_RATIO",      "0.75")) # R19 — raised from 0.60 (2026-04-27)
 MIN_CONSEC_LOW_VOL_DAYS = int(os.getenv("MIN_CONSEC_LOW_VOL_DAYS",   "3"))    # R20
 
 # ─── Watchlist Trigger ─────────────────────────────────────────────────────────

@@ -32,7 +32,7 @@ Based on Stages 5–8 of `qullamaggie/breakouts/Rules.MD`:
 | R25 | Breakout candle closes within 5% of its high (strong close) |
 | R6–R10 | Prior move of ≥ 25% within last 60 trading days *(updated 2026-04-27)* |
 | R11–R12 | Base depth ≤ 15%, duration 5–40 days |
-| R19 | Average base volume ≤ 60% of 50-day average |
+| R19 | Average base volume ≤ 75% of 50-day average *(updated 2026-04-27: was 60%)* |
 
 ### Preferred (Adds Confidence)
 | Rule | Criterion |

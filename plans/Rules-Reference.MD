@@ -25,7 +25,7 @@
 | **R16** | Base | 10-day MA above 20-day MA during consolidation | Short-term bullish structure | ✅ |
 | **R17** | Base | At least 2 volume-contraction legs visible (VCP) | Each leg smaller than prior | — |
 | **R18** | Base | No earnings within base (unless earnings caused the prior move) | Avoids earnings surprise risk | — |
-| **R19** | Volume | Base avg volume ≤ 60% of 50-day average | Sellers exhausted | ✅ |
+| **R19** | Volume | Base avg volume ≤ 75% of 50-day average ~~(was 60%)~~ | Sellers exhausted | ✅ |
 | **R20** | Volume | ≥ 3 consecutive below-average volume days before breakout | Volume dry-up confirmed | ✅ |
 | **R21** | Volume | No high-volume down days in final 5 days of base | No institutional distribution | — |
 | **R22** | Volume | Volume declines as base narrows (VCP contraction visible) | Profile slopes downward | — |
@@ -83,7 +83,7 @@ Modify in `scan/config.py` or override via `scan/.env`:
 | `MIN_BASE_DAYS` | 5 | R11 |
 | `MAX_BASE_DAYS` | 40 | R11 |
 | `MAX_BASE_DEPTH_PCT` | 15% | R12 |
-| `MAX_BASE_VOL_RATIO` | 60% | R19 |
+| `MAX_BASE_VOL_RATIO` | ~~60%~~ **75%** | R19 |
 | `MIN_CONSEC_LOW_VOL_DAYS` | 3 | R20 |
 | `MAX_DIST_FROM_PIVOT_PCT` | 5% | Watchlist trigger |
 | `MIN_BREAKOUT_VOL_RATIO` | 1.5× | R24 |
@@ -121,6 +121,7 @@ R43–R46  Market Filter        → S&P above MAs, low VIX, sector uptrend
 |------|-----------|-----------|-----------|--------|
 | 2026-04-27 | `MIN_PRIOR_MOVE_PCT` | 30% | 25% | Analysis showed 25 additional stocks would qualify; prior move still confirmed with volume surge |
 | 2026-04-27 | `MAX_PRIOR_MOVE_DAYS` | 40 days | 60 days | Analysis showed 29 additional stocks would qualify; valid setups often form 10–12 weeks after the move |
+| 2026-04-27 | `MAX_BASE_VOL_RATIO` | 60% | 75% | Stage 4 was the binding constraint after prior move changes; loosened to capture more setups with adequate (not extreme) volume contraction |
 
 ---
 

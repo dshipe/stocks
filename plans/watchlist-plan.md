@@ -41,7 +41,7 @@ a breakout** (within 2–5% of pivot):
 - 10-day MA is above the 20-day MA
 
 ### Stage 4: Volume Contraction
-- Average volume during base ≤ 60% of 50-day average
+- Average volume during base ≤ **75%** of 50-day average *(updated 2026-04-27: was 60%)*
 - At least 3 consecutive below-average volume days recently
 
 ### Watchlist Trigger: Near the Pivot
