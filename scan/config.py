@@ -40,7 +40,7 @@ MAX_FROM_52W_HIGH   = float(os.getenv("MAX_FROM_52W_HIGH",   "20.0")) # R9 — w
 # ─── Stage 3: Base / Consolidation ────────────────────────────────────────────
 MIN_BASE_DAYS       = int(os.getenv("MIN_BASE_DAYS",    "5"))     # R11
 MAX_BASE_DAYS       = int(os.getenv("MAX_BASE_DAYS",    "40"))    # R11
-MAX_BASE_DEPTH_PCT  = float(os.getenv("MAX_BASE_DEPTH_PCT", "15.0")) # R12
+MAX_BASE_DEPTH_PCT  = float(os.getenv("MAX_BASE_DEPTH_PCT", "20.0")) # R12 — raised from 15% (2026-04-27)
 
 # ─── Stage 4: Volume Contraction ──────────────────────────────────────────────
 MAX_BASE_VOL_RATIO      = float(os.getenv("MAX_BASE_VOL_RATIO",      "0.75")) # R19 — raised from 0.60 (2026-04-27)

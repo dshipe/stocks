@@ -36,7 +36,7 @@ a breakout** (within 2–5% of pivot):
 
 ### Stage 3: Tight Base Formation
 - Consolidation duration: 5–40 trading days
-- Base depth (high-to-low): ≤ 15%
+- Base depth (high-to-low): ≤ **20%** *(updated 2026-04-27: was 15%)*
 - Price has not closed below the 50-day MA during the base
 - 10-day MA is above the 20-day MA
 

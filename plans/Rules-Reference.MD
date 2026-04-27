@@ -21,7 +21,7 @@
 | **R9** | Prior Move | 52-week high proximity | Within 10–20% of 52w high | Within 20% of 52w high | | ✅ |
 | **R10** | Prior Move | Relative strength | ≥ 50% more than S&P 500 | ≥ 50% more than S&P 500 | | — |
 | **R11** | Base | Duration | 5–40 trading days | 5–40 trading days | | ✅ |
-| **R12** | Base | Depth | ≤ 15% (ideally ≤ 10%) | ≤ 15% (ideally ≤ 10%) | | ✅ |
+| **R12** | Base | Depth | ≤ **15%** (ideally ≤ 10%) | ≤ **20%** (ideally ≤ 10%) | 🔧 2026-04-27 | ✅ |
 | **R13** | Base | Single candle body | ≤ 10% body range | ≤ 10% body range | | — |
 | **R14** | Base | 50-day MA | Price above 50d MA | Price above 50d MA | | ✅ |
 | **R15** | Base | 20-day MA | Price above 20d MA | Price above 20d MA | | ✅ |
@@ -83,7 +83,7 @@ Modify in `scan/config.py` or override via `scan/.env`:
 | `MAX_FROM_52W_HIGH` | 20% | 20% | R9 | |
 | `MIN_BASE_DAYS` | 5 | 5 | R11 | |
 | `MAX_BASE_DAYS` | 40 | 40 | R11 | |
-| `MAX_BASE_DEPTH_PCT` | 15% | 15% | R12 | |
+| `MAX_BASE_DEPTH_PCT` | **15%** | **20%** | R12 | 🔧 2026-04-27 |
 | `MAX_BASE_VOL_RATIO` | **60%** | **75%** | R19 | 🔧 2026-04-27 |
 | `MIN_CONSEC_LOW_VOL_DAYS` | 3 | 3 | R20 | |
 | `MAX_DIST_FROM_PIVOT_PCT` | 5% | 5% | Watchlist trigger | |
@@ -99,7 +99,7 @@ R1–R5    Universe Filter      → price ≥ $5, vol ≥ 300k, ADR ≥ 3%
     ↓
 R6–R10   Prior Move           → ≥25% move (🔧 was 30%) within 60 days (🔧 was 40) near 52w high
     ↓
-R11–R18  Base Quality         → tight consolidation 5–40 days, ≤15% depth
+R11–R18  Base Quality         → tight consolidation 5–40 days, ≤20% depth (🔧 was 15%)
     ↓
 R19–R22  Volume Contraction   → base avg vol ≤ 75% of 50d avg (🔧 was 60%)
     ↓
@@ -123,6 +123,7 @@ R43–R46  Market Filter        → S&P above MAs, low VIX, sector uptrend
 | 2026-04-27 | `MIN_PRIOR_MOVE_PCT` | 30% | 25% | Analysis of 516 tickers showed 25 additional stocks would qualify; prior move still confirmed with volume surge (R7) |
 | 2026-04-27 | `MAX_PRIOR_MOVE_DAYS` | 40 days | 60 days | Analysis showed 29 additional stocks would qualify; valid setups often form 10–12 weeks after the explosive move |
 | 2026-04-27 | `MAX_BASE_VOL_RATIO` | 60% | 75% | After prior move changes, Stage 4 became the binding constraint; loosened to capture setups with adequate but not extreme volume contraction |
+| 2026-04-27 | `MAX_BASE_DEPTH_PCT` | 15% | 20% | 21 stocks failing Stage 3 due to depth > 15%; energy/commodity stocks form wider bases by nature. Analysis showed +12 additional stocks at 20% threshold |
 
 ---
 
