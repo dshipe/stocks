@@ -155,6 +155,21 @@ The scanner can run in two modes:
 SQL Server is the right choice for structured breakout history. AWS Bedrock is a
 generative AI platform and cannot store structured relational data — do not use it as a database.
 
+### Connection Details
+
+```python
+# In config.py or .env
+DB_SERVER   = "ec2-35-172-202-150.compute-1.amazonaws.com"
+DB_NAME     = "python"
+DB_USER     = "ai-agent"
+DB_PASSWORD = "Welcome100!"
+
+CONNECTION_STRING = (
+    f"mssql+pyodbc://{DB_USER}:{DB_PASSWORD}@{DB_SERVER}/{DB_NAME}"
+    "?driver=ODBC+Driver+17+for+SQL+Server"
+)
+```
+
 ### Table: `breakout_entries`
 
 ```sql

@@ -112,6 +112,21 @@ SQL Server is the recommended choice over AWS Bedrock for structured history.
 Bedrock is a generative AI platform — it is not a database and would be inappropriate
 for storing structured tabular history. SQL Server is ideal here.
 
+### Connection String
+
+```python
+# In config.py or .env
+DB_SERVER   = "ec2-35-172-202-150.compute-1.amazonaws.com"
+DB_NAME     = "python"
+DB_USER     = "ai-agent"
+DB_PASSWORD = "Welcome100!"
+
+CONNECTION_STRING = (
+    f"mssql+pyodbc://{DB_USER}:{DB_PASSWORD}@{DB_SERVER}/{DB_NAME}"
+    "?driver=ODBC+Driver+17+for+SQL+Server"
+)
+```
+
 ### Table: `watchlist_entries`
 
 ```sql
@@ -288,10 +303,10 @@ python-dotenv>=1.0.0
 
 ```env
 # SQL Server
-DB_SERVER=your-server.database.windows.net
-DB_NAME=stocks
-DB_USER=your_username
-DB_PASSWORD=your_password
+DB_SERVER=ec2-35-172-202-150.compute-1.amazonaws.com
+DB_NAME=python
+DB_USER=ai-agent
+DB_PASSWORD=Welcome100!
 
 # Optional: Polygon.io
 POLYGON_API_KEY=your_key_here
