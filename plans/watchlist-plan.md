@@ -353,5 +353,89 @@ NVDA    A      $127.50  $130.00  1.9%   FlatBase       45d prior move +38%, base
 
 ---
 
+---
+
+## Implementation Issues & Resolutions
+
+Issues encountered during the 2026-04-27 implementation on Ubuntu 24.04 AWS EC2.
+
+### 1. ODBC Driver 17 Not Available on Ubuntu 24.04
+**Issue:** The plan specified `ODBC Driver 17 for SQL Server`. Microsoft's Ubuntu 24.04 package
+repository only ships `ODBC Driver 18`. The Ubuntu 22.04 repo was added by mistake initially,
+causing a GPG signature failure.
+
+**Resolution:** Used the Ubuntu 24.04 Microsoft repo (`packages.microsoft.com/config/ubuntu/24.04/prod.list`)
+and installed `msodbcsql18`. Updated `config.py` default from `ODBC Driver 17` → `ODBC Driver 18`.
+
+```bash
+curl -fsSL https://packages.microsoft.com/config/ubuntu/24.04/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18
+```
+
+### 2. pip Install Blocked on Ubuntu 24.04
+**Issue:** Ubuntu 24.04 enforces PEP 668 — `pip install` refuses to write to system Python
+without an explicit override.
+
+**Resolution:** Added `--break-system-packages` flag. A virtual environment is cleaner for
+production but not strictly required here:
+```bash
+pip3 install --break-system-packages -r requirements.txt
+```
+
+### 3. lxml Not Installed (Wikipedia Ticker Fetch Failed)
+**Issue:** `pd.read_html()` requires `lxml` but it was not included in `requirements.txt`.
+The Wikipedia S&P 500 fetch silently fell back to the hardcoded 40-ticker list.
+
+**Resolution:** Added `lxml` to `requirements.txt` and installed it separately.
+```bash
+pip3 install --break-system-packages lxml
+```
+
+### 4. Wikipedia Returns HTTP 403 from Server IP
+**Issue:** After `lxml` was installed, `pd.read_html()` calls to Wikipedia returned
+`HTTP Error 403: Forbidden`. Wikipedia blocks requests with no User-Agent header,
+which is the default for pandas/urllib.
+
+**Resolution:** Rewrote `get_ticker_universe()` in `data_fetcher.py` to use `requests`
+with a browser User-Agent header, then passed the HTML string to `pd.read_html()`:
+```python
+resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0 ..."})
+tables = pd.read_html(StringIO(resp.text), ...)
+```
+
+### 5. `ai-agent` SQL Login Lacks CREATE TABLE Permission
+**Issue:** The `ai-agent` SQL Server login has only `db_datareader` and `db_datawriter` roles.
+Running `db_setup.sql` failed with: `CREATE TABLE permission denied in database 'python'`.
+
+**Resolution:** Used the `sa` account (provided separately) to create the 4 tables and
+6 indexes as a one-time operation. All subsequent scanner operations use `ai-agent` exclusively.
+The SA account is not stored in `config.py`.
+
+### 6. db_setup.sql GO Batches Failed in Python
+**Issue:** The `db_setup.sql` file uses `GO` batch separators (standard for SSMS/sqlcmd).
+Splitting on `GO` and executing batches sequentially via pyodbc caused the `CREATE INDEX`
+statements to fail because pyodbc didn't always see the committed tables in the same session.
+
+**Resolution:** Replaced the SQL file execution with direct Python `CREATE TABLE` / `CREATE INDEX`
+statements using `conn.autocommit = True` and `IF NOT EXISTS` checks per object. The `db_setup.sql`
+file remains in the repo for use with SSMS/sqlcmd where GO batches work correctly.
+
+### 7. Disk Space Tight on EC2 Instance
+**Issue:** `/dev/root` was 84% full (~1.1 GB free) before package installation.
+
+**Status:** Installation completed successfully. Monitor with `df -h` — if space becomes an issue,
+clear pip cache: `pip3 cache purge` or clean apt: `sudo apt-get clean`.
+
+### 8. Delisted / Bad Tickers in yfinance
+**Issue:** Some tickers in the hardcoded fallback list (e.g. `SQ`, now trading as `XYZ`)
+caused yfinance warnings: `possibly delisted; no timezone found`.
+
+**Resolution:** These are caught by the per-ticker `try/except` in `watchlist_scanner.py`
+and skipped silently. The Wikipedia-sourced universe avoids this by staying current.
+The fallback list was also updated with more current tickers.
+
+---
+
 *Last updated: 2026-04-27*
 *Based on: `qullamaggie/breakouts/Rules.MD` and `qullamaggie/breakouts/Summary.MD`*
+*Implemented: 2026-04-27 on Ubuntu 24.04 AWS EC2, Python 3.12, SQL Server 2016*

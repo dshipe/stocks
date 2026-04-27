@@ -526,5 +526,67 @@ no rows for today in `watchlist_entries` and exit cleanly with a log message:
 
 ---
 
+---
+
+## Implementation Issues & Resolutions
+
+Same environment as watchlist scanner (Ubuntu 24.04, Python 3.12, SQL Server 2016).
+Issues specific to the breakout scanner are noted below; shared issues are documented
+in `watchlist-plan.md`.
+
+### 1. Base Detection Occasionally Fails on Intraday Run
+**Issue:** `find_consolidation_base()` uses the peak date from the prior move to slice
+daily history forward. When called intraday, the most recent bars may not yet reflect a
+completed session, causing the base window to be 1 day short of the minimum threshold.
+
+**Resolution:** Added a fallback in `breakout_scanner.py`: if base detection fails for a
+watchlist ticker, the pivot price stored in `watchlist_entries` (set at 8 AM) is used
+directly. This ensures the breakout check can still run using the pre-computed pivot.
+
+### 2. NaN Propagation in Intraday avg_vol_20d
+**Issue:** `compute_indicators()` uses a 20-day rolling average. When only intraday
+(1-minute) data is fetched, there are insufficient rows for a 20-day rolling window,
+returning NaN for `avg_vol_20d`, which caused the volume ratio check to be skipped.
+
+**Resolution:** `breakout_scanner.py` fetches 60 days of daily history separately
+(in addition to the intraday snapshot) to compute reliable `avg_vol_20d`. The intraday
+fetch is only used for current price, session high, and cumulative volume.
+
+### 3. NaN Comparison Errors in Python
+**Issue:** Pandas NaN values don't behave like regular Python `None` — `nan != nan` is True,
+causing silent bugs in conditional checks like `if not last["avg_vol_20d"]`.
+
+**Resolution:** Added explicit NaN guards throughout `breakout_scanner.py`:
+```python
+avg_vol_20d = float(last["avg_vol_20d"]) if last["avg_vol_20d"] == last["avg_vol_20d"] else 0
+```
+Future improvement: use `pd.notna()` consistently across all indicator reads.
+
+### 4. Duplicate Breakout Alerts
+**Issue:** With the scanner running every 30 minutes, the same breakout would fire
+multiple times per day without a deduplication check.
+
+**Resolution:** `breakout_already_logged_today(ticker)` is called before processing each
+watchlist stock. If a breakout entry already exists for that ticker today, the stock is
+skipped and reported in the "Already alerted today" summary line.
+
+### 5. market_open Check Timezone Accuracy
+**Issue:** The server runs UTC. Without `pytz`, the market hours check uses a hardcoded
+UTC-4 offset (EDT), which is incorrect during Eastern Standard Time (UTC-5, Nov–Mar).
+
+**Resolution:** `pytz` is installed and used when available. The `is_market_open()`
+function in `data_fetcher.py` uses `pytz.timezone("America/New_York")` which automatically
+handles DST transitions. The UTC-4 fallback remains as a last resort.
+
+### 6. S&P 500 Context Fetch Overhead
+**Issue:** `get_sp500_context()` fetches 250 days of SPY data on every 30-minute run,
+adding ~2 seconds of latency per scan cycle.
+
+**Mitigation:** SPY data is fetched once per run and reused for all tickers. Future
+optimisation: cache SPY context to disk with a 4-hour TTL to avoid repeated fetches.
+
+---
+
 *Last updated: 2026-04-27*
 *Based on: `qullamaggie/breakouts/Rules.MD`, `qullamaggie/breakouts/Summary.MD`, `qullamaggie/breakouts/vcp_setup.MD`*
+*Implemented: 2026-04-27 on Ubuntu 24.04 AWS EC2, Python 3.12, SQL Server 2016*
