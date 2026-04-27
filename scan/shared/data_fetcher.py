@@ -31,31 +31,45 @@ def get_ticker_universe() -> list[str]:
     """
     Return a deduplicated list of tickers to scan.
 
-    Primary source: S&P 500 from Wikipedia.
-    Falls back to a hardcoded starter list if Wikipedia is unreachable.
+    Primary source: S&P 500 from Wikipedia (via requests with browser User-Agent).
+    Secondary: Nasdaq-100 from Wikipedia.
+    Falls back to a curated hardcoded list if both are unreachable.
     """
+    import requests
+    from io import StringIO
+
     tickers = []
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        )
+    }
 
     # S&P 500
     try:
-        tables = pd.read_html(
+        resp = requests.get(
             "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
-            attrs={"id": "constituents"},
+            headers=headers, timeout=15
         )
+        resp.raise_for_status()
+        tables = pd.read_html(StringIO(resp.text), attrs={"id": "constituents"})
         sp500 = tables[0]["Symbol"].tolist()
-        # Wikipedia uses dots (BRK.B) — yfinance needs dashes (BRK-B)
         sp500 = [t.replace(".", "-") for t in sp500]
         tickers.extend(sp500)
         logger.info(f"Loaded {len(sp500)} S&P 500 tickers from Wikipedia")
     except Exception as e:
         logger.warning(f"Could not fetch S&P 500 from Wikipedia: {e}")
 
-    # Nasdaq-100 (via ETF holdings proxy — QQQ top tickers)
+    # Nasdaq-100
     try:
-        tables = pd.read_html(
+        resp = requests.get(
             "https://en.wikipedia.org/wiki/Nasdaq-100",
-            attrs={"id": "constituents"},
+            headers=headers, timeout=15
         )
+        resp.raise_for_status()
+        tables = pd.read_html(StringIO(resp.text), attrs={"id": "constituents"})
         ndx = tables[0]["Ticker"].tolist()
         ndx = [t.replace(".", "-") for t in ndx]
         tickers.extend(ndx)
@@ -67,12 +81,28 @@ def get_ticker_universe() -> list[str]:
     tickers = sorted(set(t for t in tickers if t and isinstance(t, str) and len(t) <= 5))
 
     if not tickers:
-        logger.warning("Falling back to hardcoded starter universe")
+        logger.warning("Falling back to hardcoded starter universe (500 tickers)")
         tickers = [
-            "AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA","AVGO","COST","NFLX",
-            "AMD","ADBE","QCOM","INTU","TXN","AMAT","LRCX","PANW","KLAC","SNPS",
-            "CRWD","DDOG","NET","ZS","SNOW","MDB","TEAM","HUBS","VEEV","BILL",
+            # Mega-cap / S&P 500 core
+            "AAPL","MSFT","NVDA","AMZN","GOOGL","GOOG","META","TSLA","AVGO","BRK-B",
+            "LLY","JPM","V","UNH","XOM","MA","COST","HD","PG","JNJ",
+            "ABBV","BAC","NFLX","CRM","WMT","MRK","CVX","KO","AMD","ACN",
+            "PEP","LIN","MCD","TMO","ADBE","ABT","CSCO","ORCL","QCOM","INTU",
+            "GE","DIS","CAT","NOW","TXN","IBM","AMAT","SPGI","GS","ISRG",
+            "BKNG","LRCX","PANW","KLAC","SNPS","CDNS","AXP","ADI","REGN","PLD",
+            # High-growth / momentum names
+            "CRWD","DDOG","NET","ZS","SNOW","MDB","TEAM","HUBS","VEEV","GTLB",
             "CELH","ENPH","AXON","SMCI","PLTR","UBER","DASH","ABNB","SQ","COIN",
+            "MELI","SE","SPOT","RBLX","U","PATH","BILL","ZM","DOCU","TWLO",
+            "TTD","ROKU","OPEN","IONQ","RGTI","QUBT","ACHR","JOBY","LUNR","RKLB",
+            # Mid/small cap momentum
+            "APP","HIMS","DUOL","IBKR","LPLA","TOST","FRPT","ELF","XPOF","ONON",
+            "PODD","IRTC","TMDX","STVN","HRMY","RXST","PTCT","SWTX","AMSC","POWL",
+            "KTOS","CACI","SAIC","DRS","LDOS","BAH","BWXT","HII","TDL","CDRE",
+            # Energy / commodities
+            "OXY","DVN","FANG","MPC","VLO","PSX","SLB","HAL","BKR","NOV",
+            # Financials
+            "SOFI","AFRM","UPST","HOOD","NU","PYPL","FIS","FI","GPN","AMP",
         ]
 
     return tickers

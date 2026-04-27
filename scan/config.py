@@ -15,7 +15,7 @@ DB_SERVER   = os.getenv("DB_SERVER",   "ec2-35-172-202-150.compute-1.amazonaws.c
 DB_NAME     = os.getenv("DB_NAME",     "python")
 DB_USER     = os.getenv("DB_USER",     "ai-agent")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "Welcome100!")
-DB_DRIVER   = os.getenv("DB_DRIVER",   "ODBC Driver 17 for SQL Server")
+DB_DRIVER   = os.getenv("DB_DRIVER",   "ODBC Driver 18 for SQL Server")
 
 DB_CONNECTION_STRING = (
     f"DRIVER={{{DB_DRIVER}}};"
