@@ -43,6 +43,7 @@ from shared.criteria import (
     detect_pattern_type,
     grade_setup,
 )
+from shared.telegram_notify import send_breakout_alert, send_breakout_scan_summary
 from shared.db_writer import (
     get_todays_watchlist,
     breakout_already_logged_today,
@@ -84,23 +85,39 @@ def get_sp500_context() -> dict:
 
 def send_notification(ticker: str, breakout: dict, entry: dict) -> None:
     """
-    Send SMS notification via Twilio if configured.
-    Silently skips if Twilio credentials are not set.
+    Send breakout alert via Telegram (and optionally Twilio SMS if configured).
     """
+    # Telegram — always attempt
+    send_breakout_alert({
+        "ticker":             ticker,
+        "breakout_price":     breakout.get("breakout_price"),
+        "pivot_price":        breakout.get("pivot_price"),
+        "volume_ratio":       breakout.get("volume_ratio"),
+        "pattern_type":       entry.get("pattern_type", ""),
+        "pattern_grade":      entry.get("pattern_grade", ""),
+        "prior_move_pct":     entry.get("prior_move_pct", 0),
+        "prior_move_days":    entry.get("prior_move_days", 0),
+        "stop_price":         entry.get("stop_price"),
+        "suggested_rr_ratio": entry.get("suggested_rr_ratio"),
+    })
+
+    # Twilio SMS — only if credentials are configured
     if not (cfg.TWILIO_SID and cfg.TWILIO_TOKEN and cfg.NOTIFY_PHONE):
         return
     try:
         from twilio.rest import Client
         client = Client(cfg.TWILIO_SID, cfg.TWILIO_TOKEN)
         msg = (
-            f"BREAKOUT ALERT: {ticker} ({entry.get('pattern_type','')}/{entry.get('pattern_grade','')})\n"
-            f"Price: ${breakout['breakout_price']:.2f} | Pivot: ${breakout['pivot_price']:.2f}\n"
-            f"Vol: {breakout['volume_ratio']:.1f}x avg | +{breakout['pct_above_pivot']:.1f}% above pivot"
+            f"BREAKOUT: {ticker} ({entry.get('pattern_type','')}/{entry.get('pattern_grade','')})
+"
+            f"Price: ${breakout['breakout_price']:.2f} | Pivot: ${breakout['pivot_price']:.2f}
+"
+            f"Vol: {breakout['volume_ratio']:.1f}x avg"
         )
         client.messages.create(body=msg, from_=cfg.TWILIO_FROM, to=cfg.NOTIFY_PHONE)
         logger.info(f"SMS sent for {ticker} breakout")
     except Exception as e:
-        logger.warning(f"Notification failed for {ticker}: {e}")
+        logger.warning(f"Twilio SMS failed for {ticker}: {e}")
 
 
 # ─── Main Scanner ──────────────────────────────────────────────────────────────

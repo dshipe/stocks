@@ -14,6 +14,7 @@ The goal is a fully automated, scheduled Python script that:
 3. Outputs the day's watchlist with exact reasons each stock qualifies
 4. Stores the watchlist and reasons in a persistent history database
 5. Tracks subsequent price performance to identify which criteria produce the best results
+6. Sends a formatted Telegram summary after every scan (watchlist results + stage funnel counts)
 
 ---
 
@@ -101,7 +102,8 @@ watchlist/
    h. Record ALL reasons the stock qualifies (each criterion met)
 3. Compile watchlist
 4. Write to SQL Server: watchlist_entries table
-5. Write watchlist to CSV / send summary notification
+5. Write watchlist to CSV
+6. Send Telegram summary (shared/telegram_notify.py → send_watchlist_summary)
 ```
 
 ---
@@ -280,9 +282,10 @@ pip install python-dotenv             # .env file for secrets
 pip install polygon-api-client        # Polygon.io (paid, production-grade)
 pip install finviz                    # Finviz screener integration
 
-# Optional: notifications
-pip install twilio                    # SMS alerts
-pip install sendgrid                  # Email alerts
+# Notifications
+pip install requests                  # already required — used for Telegram Bot API
+pip install twilio                    # optional: SMS alerts (only if TWILIO_SID is set)
+pip install sendgrid                  # optional: email alerts
 ```
 
 **requirements.txt:**
@@ -311,7 +314,11 @@ DB_PASSWORD=Welcome100!
 # Optional: Polygon.io
 POLYGON_API_KEY=your_key_here
 
-# Optional: Notifications
+# Telegram notifications (primary — always active)
+TELEGRAM_BOT_TOKEN=<openclaw_bot_token>
+TELEGRAM_CHAT_ID=<your_chat_id>
+
+# Optional: Twilio SMS (only fires if all three are set)
 TWILIO_SID=...
 TWILIO_TOKEN=...
 NOTIFY_PHONE=+1...
@@ -433,6 +440,18 @@ caused yfinance warnings: `possibly delisted; no timezone found`.
 **Resolution:** These are caught by the per-ticker `try/except` in `watchlist_scanner.py`
 and skipped silently. The Wikipedia-sourced universe avoids this by staying current.
 The fallback list was also updated with more current tickers.
+
+---
+
+### 9. Telegram Notifications Added (2026-04-27)
+**Change:** Both scanners now send results to Telegram automatically after each run.
+
+- `shared/telegram_notify.py` added — `send_watchlist_summary()` and `send_breakout_alert()`
+- `watchlist_scanner.py` calls `send_watchlist_summary()` at the end of every full scan
+- `breakout_scanner.py` calls `send_breakout_alert()` inside `send_notification()` for each breakout
+- Uses the OpenClaw Telegram bot token and Dan's chat ID (overridable via `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`)
+- Dry-run and single-ticker (`--ticker`) scans skip the Telegram notification
+- Twilio SMS remains as an optional secondary channel
 
 ---
 

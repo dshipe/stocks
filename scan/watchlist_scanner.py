@@ -39,6 +39,7 @@ from shared.criteria import (
     build_qualification_reasons,
 )
 from shared.db_writer import insert_watchlist_entry, test_connection
+from shared.telegram_notify import send_watchlist_summary
 
 # ─── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -316,6 +317,26 @@ def main():
         print(f"  Written to DB: {written}/{len(watchlist)} entries\n")
     elif args.dry_run:
         print("  [DRY RUN] No data written to database.\n")
+
+    # Send Telegram notification (always, even on dry-run)
+    if not args.ticker:  # skip single-ticker test runs
+        tg_stats = {
+            "total":  stats["total"],
+            "stage1": stats["passed_s1"],
+            "stage2": stats["passed_s2"],
+            "stage3": stats["passed_s3"],
+            "stage4": stats["passed_s4"],
+        }
+        from datetime import date as _date
+        sent = send_watchlist_summary(
+            scan_date=str(_date.today()),
+            results=watchlist,
+            stats=tg_stats,
+        )
+        if sent:
+            logger.info("Telegram notification sent")
+        else:
+            logger.warning("Telegram notification failed")
 
 
 if __name__ == "__main__":

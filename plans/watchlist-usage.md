@@ -23,6 +23,8 @@ The breakout scanner monitors these throughout the day and alerts when one trigg
 The scanner runs automatically at **8:00 AM EST every weekday**.
 No action needed once cron is installed.
 
+After each run, results are automatically sent to **Telegram**. You'll receive a formatted summary with every setup found, grades, pivots, and stage funnel counts.
+
 Check the log after it runs:
 ```bash
 tail -50 /home/ubuntu/.openclaw/workspace/stocks-repo/scan/logs/watchlist.log
@@ -220,6 +222,50 @@ then adjust `config.py` accordingly.
 
 ---
 
+## Telegram Notifications
+
+Both scanners send results to Telegram automatically.
+
+### Watchlist Scanner
+After every full scan, you receive a summary like:
+
+```
+📋 Watchlist — 2026-04-28  (3 setups)
+
+🔥 CELH  [A+]  VCP
+   Price $48.20 → Pivot $49.00  (1.6% away)
+   Prior move: +67% in 22d
+
+⭐ AXON  [A]  FlatBase
+   Price $312.50 → Pivot $320.00  (2.3% away)
+   Prior move: +41% in 30d
+
+Scanned 516 tickers — S1:181  S2:52  S3:8  S4:3
+```
+
+### Breakout Scanner
+Each confirmed breakout triggers an immediate alert:
+
+```
+🚨 BREAKOUT — CELH  🔥 [A+]
+
+   Price: $49.15  (pivot $49.00)
+   Volume: 2.4× avg
+   Pattern: VCP  |  Prior move: +67% / 22d
+   Stop: $44.20  |  R/R: 3.2:1
+```
+
+### Configuration
+Notifications use the OpenClaw Telegram bot by default. To override:
+```env
+TELEGRAM_BOT_TOKEN=your_token
+TELEGRAM_CHAT_ID=your_chat_id
+```
+
+Single-ticker scans (`--ticker AAPL`) and `--dry-run` do **not** send Telegram notifications.
+
+---
+
 ## Troubleshooting
 
 | Problem | Check |
@@ -246,5 +292,5 @@ tail -60 /home/ubuntu/.openclaw/workspace/stocks-repo/scan/logs/watchlist.log
 
 ---
 
-*Last updated: 2026-04-27*
+*Last updated: 2026-04-27 (added Telegram notifications)*
 *See also: `breakout-scanner-usage.md`, `watchlist-plan.md`*
