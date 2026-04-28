@@ -1,0 +1,33 @@
+create a new repo called qullamaggie.  
+
+go to the website https://qullamaggie.com/  Capture all available content in the form of blog post, videos or other sources.  Convert the content into easily MD files.  Create an index.MD of all data captured.  commit this to the repo
+
+Create a summary.MD file of the main concepts in stock trading.  These are the concept most repeated in the content.  Produce no more than 10 concepts.
+
+Capture all images of stock charts showing good setups.  
+
+Commit all of this to the new repo
+
+
+---------------
+
+
+read through the documents in stocks repo, qullamaggie folder.  Research the "breakout" stock setup.  look at https://qullamaggie.com/ and related resources.  Only analyze the "breakout" setup.  Convert all information into a "breakouts" folder and MD files.  Createan Index.MD of all files collected.  Create a summary.MD of the five most repeated concepts about identifying the step.  Add a section to the Summary.MD of when to alter on a breakout and buy the breakout.  Add a section of when to take profit and sell a breakout.
+
+Collect examples and images of stock charts showing a breakout.  Capture these in image or MD files.  I want as many examples of the successful stock breakouts as possible.  These charts will be used to scan current stocks and charts to identify stocks that will breakout in the future.  
+
+Create a rules.MD file for finding the necessary criteria for a breakout.  I want to apply the Rules.MD criteria to current stock data.  This data can be at http://maximum-pain.com/candlestick/AAPL.  Create an MD file of the changes needed in the http://maximum-pain.com/candlestick/AAPL data source.  How much historical stock data is needed, 1 year, 5 years, 10 years.
+
+---------------
+
+
+search https://qullamaggie.com/ and related resources for find (1) what stock tickers are examples of breakouts and (2) what dates did the stock break out on
+
+---------------
+
+Look at
+
+
+---------------
+
+in candlestick.component.html, add two new user inputs under the ticker.  The first one is a start date.  The default value is the current date minus 90 days.   The second one is an integer value for number days. The default value is 90 days.  Then in the TS file, fetch the daily records beginning at the start date and going for the number of days.  Display the chart using those values.
