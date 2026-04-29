@@ -64,7 +64,7 @@
 **✅ Implemented** — rule is checked in `scan/shared/criteria.py`
 **—** — not yet automated (manual check or future enhancement)
 
-Of the 46 rules, **16 are automated** in the current scanner.
+Of the 46 rules, **19 are automated** in the current scanner (R6a, R6b, R6c added 2026-04-29).
 
 ---
 
@@ -77,7 +77,10 @@ Modify in `scan/config.py` or override via `scan/.env`:
 | `MIN_PRICE` | $5.00 | $5.00 | R1 | |
 | `MIN_AVG_VOLUME` | 300,000 | 300,000 | R2 | |
 | `MIN_ADR_PCT` | 3.0% | 3.0% | R3 | |
-| `MIN_PRIOR_MOVE_PCT` | **30%** | **25%** | R6 | 🔧 2026-04-27 |
+| `MIN_MOMENTUM_1M_PCT` | — | **10%** | R6a | 🔧 2026-04-29 |
+| `MIN_MOMENTUM_3M_PCT` | — | **20%** | R6b | 🔧 2026-04-29 |
+| `MIN_MOMENTUM_6M_PCT` | — | **30%** | R6c | 🔧 2026-04-29 |
+| `MIN_PRIOR_MOVE_PCT` | **30%** | **25%** | R6 (2b bonus) | 🔧 2026-04-27 |
 | `MAX_PRIOR_MOVE_DAYS` | **40** | **60** | R6 | 🔧 2026-04-27 |
 | `MIN_VOL_SURGE_RATIO` | 2.0× | 2.0× | R7 | |
 | `MAX_FROM_52W_HIGH` | 20% | 20% | R9 | |
@@ -95,15 +98,17 @@ Modify in `scan/config.py` or override via `scan/.env`:
 ## Stage Flow
 
 ```
-R1–R5    Universe Filter      → price ≥ $5, vol ≥ 300k, ADR ≥ 3%
+R1–R5    Universe Filter         → price ≥ $5, vol ≥ 300k, ADR ≥ 3%
     ↓
-R6–R10   Prior Move           → ≥25% move (🔧 was 30%) within 60 days (🔧 was 40) near 52w high
+R6a–R6c  Momentum Trend (Stage 2)→ up ≥10%/20%/30% over 1M/3M/6M — NEVER AGES OUT (🔧 2026-04-29)
     ↓
-R11–R18  Base Quality         → tight consolidation 5–40 days, ≤20% depth (🔧 was 15%)
+R6–R10   Prior Move (Stage 2b)   → ≥25% in 60 days w/ vol surge — bonus grading only (🔧 2026-04-29)
     ↓
-R19–R22  Volume Contraction   → base avg vol ≤ 75% of 50d avg (🔧 was 60%)
+R11–R18  Base Quality            → tight consolidation 5–40 days, ≤20% depth (🔧 was 15%)
     ↓
-         Watchlist Trigger    → within 5% of pivot → add to watchlist
+R19–R22  Volume Contraction      → base avg vol ≤ 75% of 50d avg (🔧 was 60%)
+    ↓
+         Watchlist Trigger       → within 8% of pivot → add to watchlist (🔧 was 5%)
     ↓
 R23–R28  Breakout             → price > pivot + volume ≥ 1.5× avg + strong candle
     ↓
@@ -126,6 +131,10 @@ R43–R46  Market Filter        → S&P above MAs, low VIX, sector uptrend
 | 2026-04-27 | `MAX_BASE_DEPTH_PCT` | 15% | 20% | 21 stocks failing Stage 3 due to depth > 15%; energy/commodity stocks form wider bases by nature. Analysis showed +12 additional stocks at 20% threshold |
 | 2026-04-29 | `MAX_DIST_FROM_PIVOT_PCT` | 5% | **8%** | SNDK was 6.3% below its pivot after a brief pullback from all-time high — a valid pre-breakout setup excluded by the old 5% trigger |
 | 2026-04-29 | `find_prior_explosive_move` logic | uncapped end_idx | capped at `len-1-MIN_BASE_DAYS` | WDC peaked 4 days ago; uncapped loop set peak_date=today leaving <5 days for base detection. Both SNDK and WDC were silently dropped at Stage 3 |
+| 2026-04-29 | Stage 2 gate | Prior explosive move (ages out after 60d) | **Multi-timeframe momentum** (1M/3M/6M — never ages out) | CVNA fell off watchlist when its initial move aged past the 60d window despite being a market leader. Prior move demoted to Stage 2b bonus grading. |
+| 2026-04-29 | `MIN_MOMENTUM_1M_PCT` | — (new) | **10%** | New Stage 2 gate parameter |
+| 2026-04-29 | `MIN_MOMENTUM_3M_PCT` | — (new) | **20%** | New Stage 2 gate parameter |
+| 2026-04-29 | `MIN_MOMENTUM_6M_PCT` | — (new) | **30%** | New Stage 2 gate parameter |
 
 ---
 
