@@ -31,7 +31,14 @@ MIN_PRICE           = float(os.getenv("MIN_PRICE",      "5.0"))    # R1
 MIN_AVG_VOLUME      = int(os.getenv("MIN_AVG_VOLUME",   "300000")) # R2
 MIN_ADR_PCT         = float(os.getenv("MIN_ADR_PCT",    "3.0"))    # R3
 
-# ─── Stage 2: Prior Explosive Move ────────────────────────────────────────────
+# ─── Stage 2: Momentum Trend Filter (gating condition — added 2026-04-29) ────
+# Replaces prior explosive move as the primary Stage 2 gate.
+# Measures current performance vs historical — never ages out.
+MIN_MOMENTUM_1M_PCT  = float(os.getenv("MIN_MOMENTUM_1M_PCT", "10.0"))  # R6a — 1M (20d) gain >= 10% (lenient: consolidation expected)
+MIN_MOMENTUM_3M_PCT  = float(os.getenv("MIN_MOMENTUM_3M_PCT", "20.0"))  # R6b — 3M (60d) gain >= 20%
+MIN_MOMENTUM_6M_PCT  = float(os.getenv("MIN_MOMENTUM_6M_PCT", "30.0"))  # R6c — 6M (120d) gain >= 30%
+
+# ─── Stage 2b: Prior Explosive Move (bonus — grading only, not a gate) ───────
 MIN_PRIOR_MOVE_PCT  = float(os.getenv("MIN_PRIOR_MOVE_PCT",  "25.0")) # R6 — lowered from 30% (2026-04-27)
 MAX_PRIOR_MOVE_DAYS = int(os.getenv("MAX_PRIOR_MOVE_DAYS",   "60"))   # R6 — extended from 40 days (2026-04-27)
 MIN_VOL_SURGE_RATIO = float(os.getenv("MIN_VOL_SURGE_RATIO", "2.0"))  # R7
