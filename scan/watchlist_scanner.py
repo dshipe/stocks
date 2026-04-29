@@ -4,7 +4,15 @@ watchlist_scanner.py — Daily watchlist generator.
 
 Run every weekday at 8:00 AM EST via cron.
 Scans the full market universe for stocks meeting Qullamaggie setup criteria
-(Stages 1–4) that are within 5% of their pivot (breakout level).
+that are within 8% of their pivot (breakout level).
+
+Stage flow (as of 2026-04-29):
+    Stage 1  — Universe filter (price, volume, ADR%)
+    Stage 2  — Momentum trend: up ≥10%/20%/30% over 1M/3M/6M (NEVER AGES OUT)
+    Stage 2b — Prior explosive move: bonus grading only, not a gate
+    Stage 3  — Consolidation base (5–40 days, tight depth)
+    Stage 4  — Volume contraction during base
+    Trigger  — Within 8% of pivot
 
 Results are written to SQL Server: watchlist_entries table.
 
@@ -31,6 +39,7 @@ from shared.data_fetcher import (
 )
 from shared.criteria import (
     check_universe_filter,
+    check_momentum_trend,
     find_prior_explosive_move,
     find_consolidation_base,
     check_volume_contraction,
@@ -71,13 +80,28 @@ def scan_ticker(ticker: str) -> dict | None:
     if universe is None:
         return None
 
-    # Stage 2: Prior explosive move
-    prior_move = find_prior_explosive_move(df)
-    if prior_move is None:
+    # Stage 2: Momentum trend filter (never ages out)
+    momentum = check_momentum_trend(df)
+    if momentum is None:
         return None
 
+    # Stage 2b: Prior explosive move (bonus grading — not a gate)
+    prior_move = find_prior_explosive_move(df)
+
     # Stage 3: Consolidation base
-    base = find_consolidation_base(df, prior_move["peak_date"])
+    # Anchor from prior_move peak if found; otherwise use the recent 52w high date
+    if prior_move:
+        base_anchor = prior_move["peak_date"]
+    else:
+        import pandas as _pd
+        high_idx    = df["High"].tail(252).idxmax()
+        base_anchor = high_idx.date()
+        # Cap so there are at least MIN_BASE_DAYS trading days of data after it
+        from datetime import date as _date, timedelta as _td
+        cap = (_date.today() - _td(days=cfg.MIN_BASE_DAYS + 2))
+        if base_anchor > cap:
+            base_anchor = (_date.today() - _td(days=cfg.MAX_BASE_DAYS))
+    base = find_consolidation_base(df, base_anchor)
     if base is None:
         return None
 
@@ -99,11 +123,11 @@ def scan_ticker(ticker: str) -> dict | None:
 
     # Determine pattern type and grade
     pattern_type = detect_pattern_type(df, base)
-    grade        = grade_setup(prior_move, base, vol_contraction, pattern_type)
+    grade        = grade_setup(prior_move, base, vol_contraction, pattern_type, momentum)
 
     # Build human-readable qualification reasons for the database
     reasons_json = build_qualification_reasons(
-        prior_move, base, vol_contraction, pattern_type, grade
+        prior_move, base, vol_contraction, pattern_type, grade, momentum
     )
 
     # Compute suggested stop and R/R
@@ -118,8 +142,8 @@ def scan_ticker(ticker: str) -> dict | None:
         "price_at_scan":            round(current_price, 4),
         "pivot_price":              pivot_price,
         "pct_from_pivot":           round(pct_from_pivot, 2),
-        "prior_move_pct":           prior_move["move_pct"],
-        "prior_move_days":          prior_move["move_days"],
+        "prior_move_pct":           prior_move["move_pct"] if prior_move else 0,
+        "prior_move_days":          prior_move["move_days"] if prior_move else 0,
         "base_depth_pct":           base["base_depth_pct"],
         "base_duration_days":       base["base_duration_days"],
         "volume_contraction_ratio": vol_contraction["contraction_ratio"],
@@ -140,10 +164,10 @@ def scan_ticker(ticker: str) -> dict | None:
 
 def run_scan(tickers: list[str], dry_run: bool = False) -> list[dict]:
     """Scan all tickers and return the watchlist."""
-    watchlist  = []
-    total      = len(tickers)
-    passed_s1  = passed_s2 = passed_s3 = passed_s4 = 0
-    errors     = 0
+    watchlist   = []
+    total       = len(tickers)
+    passed_s1   = passed_s2 = passed_s2b = passed_s3 = passed_s4 = 0
+    errors      = 0
 
     print(f"\n{'='*65}")
     print(f"  DAILY WATCHLIST SCAN — {date.today()}")
@@ -166,14 +190,28 @@ def run_scan(tickers: list[str], dry_run: bool = False) -> list[dict]:
                 continue
             passed_s1 += 1
 
-            # Stage 2
-            prior_move = find_prior_explosive_move(df)
-            if prior_move is None:
+            # Stage 2: Momentum trend
+            momentum = check_momentum_trend(df)
+            if momentum is None:
                 continue
             passed_s2 += 1
 
+            # Stage 2b: Prior explosive move (bonus — not a gate)
+            prior_move = find_prior_explosive_move(df)
+            if prior_move:
+                passed_s2b += 1
+                base_anchor = prior_move["peak_date"]
+            else:
+                import pandas as _pd
+                high_idx    = df["High"].tail(252).idxmax()
+                base_anchor = high_idx.date()
+                from datetime import date as _date, timedelta as _td
+                cap = (_date.today() - _td(days=cfg.MIN_BASE_DAYS + 2))
+                if base_anchor > cap:
+                    base_anchor = (_date.today() - _td(days=cfg.MAX_BASE_DAYS))
+
             # Stage 3
-            base = find_consolidation_base(df, prior_move["peak_date"])
+            base = find_consolidation_base(df, base_anchor)
             if base is None:
                 continue
             passed_s3 += 1
@@ -194,9 +232,9 @@ def run_scan(tickers: list[str], dry_run: bool = False) -> list[dict]:
                 continue
 
             pattern_type = detect_pattern_type(df, base)
-            grade        = grade_setup(prior_move, base, vol_contraction, pattern_type)
+            grade        = grade_setup(prior_move, base, vol_contraction, pattern_type, momentum)
             reasons_json = build_qualification_reasons(
-                prior_move, base, vol_contraction, pattern_type, grade
+                prior_move, base, vol_contraction, pattern_type, grade, momentum
             )
 
             last        = df.iloc[-1]
@@ -209,8 +247,8 @@ def run_scan(tickers: list[str], dry_run: bool = False) -> list[dict]:
                 "price_at_scan":            round(current_price, 4),
                 "pivot_price":              pivot_price,
                 "pct_from_pivot":           round(pct_from_pivot, 2),
-                "prior_move_pct":           prior_move["move_pct"],
-                "prior_move_days":          prior_move["move_days"],
+                "prior_move_pct":           prior_move["move_pct"] if prior_move else 0,
+                "prior_move_days":          prior_move["move_days"] if prior_move else 0,
                 "base_depth_pct":           base["base_depth_pct"],
                 "base_duration_days":       base["base_duration_days"],
                 "volume_contraction_ratio": vol_contraction["contraction_ratio"],
@@ -233,7 +271,7 @@ def run_scan(tickers: list[str], dry_run: bool = False) -> list[dict]:
 
     return watchlist, {
         "total": total, "passed_s1": passed_s1, "passed_s2": passed_s2,
-        "passed_s3": passed_s3, "passed_s4": passed_s4,
+        "passed_s2b": passed_s2b, "passed_s3": passed_s3, "passed_s4": passed_s4,
         "watchlist": len(watchlist), "errors": errors,
     }
 
@@ -296,9 +334,10 @@ def main():
     print(f"  {'─'*40}")
     print(f"  Total tickers scanned : {stats['total']}")
     print(f"  Passed Stage 1 filter : {stats['passed_s1']}")
-    print(f"  Passed Stage 2 (move) : {stats['passed_s2']}")
-    print(f"  Passed Stage 3 (base) : {stats['passed_s3']}")
-    print(f"  Passed Stage 4 (vol)  : {stats['passed_s4']}")
+    print(f"  Passed Stage 2 (momentum) : {stats['passed_s2']}")
+    print(f"  + also had prior move (2b): {stats['passed_s2b']}")
+    print(f"  Passed Stage 3 (base)     : {stats['passed_s3']}")
+    print(f"  Passed Stage 4 (vol)      : {stats['passed_s4']}")
     print(f"  On watchlist today    : {stats['watchlist']}")
     print(f"  Errors (skipped)      : {stats['errors']}")
 
