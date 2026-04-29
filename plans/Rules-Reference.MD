@@ -106,7 +106,7 @@ R6–R10   Prior Move (Stage 2b)   → ≥25% in 60 days w/ vol surge — bonus 
     ↓
 R11–R18  Base Quality            → tight consolidation 5–40 days, ≤20% depth (🔧 was 15%)
     ↓
-R19–R22  Volume Contraction      → base avg vol ≤ 75% of 50d avg (🔧 was 60%)
+R19–R22  Volume Contraction      → bonus grading only, not a gate (🔧 demoted 2026-04-29)
     ↓
          Watchlist Trigger       → within 8% of pivot → add to watchlist (🔧 was 5%)
     ↓
@@ -138,6 +138,7 @@ R43–R46  Market Filter        → S&P above MAs, low VIX, sector uptrend
 | 2026-04-29 | `MIN_MOMENTUM_1M_PCT` | 10% | **5%** | Diagnostic: 112/174 stocks failing 1M gate alone; consolidating stocks have naturally flat 1M |
 | 2026-04-29 | `MIN_MOMENTUM_3M_PCT` | 20% | **15%** | Recovers ~20 additional stocks with strong 6M trends but moderate 3M |
 | 2026-04-29 | `MAX_BASE_VOL_RATIO` | 0.75 | **0.85** | 13 stocks (KLAC, MRVL, BKR, JBL, FIX etc.) failing Stage 4 with ratios 0.76–0.85 |
+| 2026-04-29 | Stage 4 gate | Hard gate (drops stock) | **Bonus grading only** | 17/20 Stage 3 stocks dropped at vol contraction; consistent with Stage 2b philosophy — use quality signals for ranking, not exclusion |
 
 ---
 
