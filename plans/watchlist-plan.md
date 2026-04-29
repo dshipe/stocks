@@ -540,3 +540,44 @@ most recent 52-week high date (capped so ≥5 days of base data exist).
 ---
 
 *Last updated: 2026-04-29*
+
+---
+
+### 12. Stage 4 Demotion: Volume Contraction → Grading Bonus (2026-04-29)
+
+**Problem:** After demoting prior explosive move to Stage 2b, Stage 4 became the new
+bottleneck. Diagnostic showed 17 of 20 Stage 3 stocks being dropped at volume contraction
+— only 2 stocks on the final watchlist.
+
+**Root cause (same pattern as Stage 2b):** Volume contraction is a quality signal, not a
+binary pass/fail criterion. Many legitimate setups have moderate volume during the base,
+especially in higher-float large-cap stocks. Using it as a hard gate was too restrictive.
+
+**Decision:** Demote Stage 4 to grading bonus, consistent with how Stage 2b (prior explosive
+move) was handled.
+
+```
+Before: Stage 4 failure → stock dropped
+After:  Stage 4 run → result used in grade_setup() scoring
+        - ratio ≤ 0.30 → +3 score points
+        - ratio ≤ 0.45 → +2 score points
+        - ratio ≤ 0.60 → +1 score point
+        - consecutive quiet days ≥ 5 → +1 bonus
+        - None (no contraction detected) → +0, stock still qualifies
+```
+
+Stocks with clean volume contraction (VCP-style) will naturally grade A or A+.
+Stocks without it will grade B or C but remain on the watchlist — giving Dan the
+full picture rather than silently excluding them.
+
+**Philosophy:** Two hard gates remain (Stage 1 universe + Stage 3 base formation).
+Everything else is a grading signal. The watchlist shows the best-to-worst setup
+quality via grade, not a binary in/out decision.
+
+**Files changed:**
+- `scan/shared/criteria.py` — `grade_setup()`, `build_qualification_reasons()`,
+  `check_volume_contraction()` docstring updated; all handle `vol_contraction=None`
+- `scan/watchlist_scanner.py` — Stage 4 no longer a gate; `passed_s4` now counts
+  "had clean vol contraction" for informational purposes only
+
+---
