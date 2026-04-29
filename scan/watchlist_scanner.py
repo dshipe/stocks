@@ -11,7 +11,7 @@ Stage flow (as of 2026-04-29):
     Stage 2  — Momentum trend: up ≥10%/20%/30% over 1M/3M/6M (NEVER AGES OUT)
     Stage 2b — Prior explosive move: bonus grading only, not a gate
     Stage 3  — Consolidation base (5–40 days, tight depth)
-    Stage 4  — Volume contraction during base
+    Stage 4  — Volume contraction: bonus grading only, not a gate (demoted 2026-04-29)
     Trigger  — Within 8% of pivot
 
 Results are written to SQL Server: watchlist_entries table.
@@ -105,10 +105,9 @@ def scan_ticker(ticker: str) -> dict | None:
     if base is None:
         return None
 
-    # Stage 4: Volume contraction
+    # Stage 4: Volume contraction (bonus grading — not a gate)
     vol_contraction = check_volume_contraction(df, base["base_start_date"])
-    if vol_contraction is None:
-        return None
+    # None is OK — no contraction bonus but stock still qualifies
 
     # Watchlist trigger: is the stock within MAX_DIST_FROM_PIVOT_PCT of the pivot?
     current_price = universe["current_price"]
@@ -146,13 +145,13 @@ def scan_ticker(ticker: str) -> dict | None:
         "prior_move_days":          prior_move["move_days"] if prior_move else 0,
         "base_depth_pct":           base["base_depth_pct"],
         "base_duration_days":       base["base_duration_days"],
-        "volume_contraction_ratio": vol_contraction["contraction_ratio"],
+        "volume_contraction_ratio": vol_contraction["contraction_ratio"] if vol_contraction else 0,
         "adr_pct":                  round(universe["adr_pct"], 2),
         "avg_daily_volume":         int(avg_vol_20d),
         "distance_to_pivot_pct":    round(pct_from_pivot, 2),
         "ma10_above_ma20":          base["ma10_above_ma20"],
         "above_50d_ma":             base["above_50d_ma"],
-        "volume_contraction_days":  vol_contraction["consecutive_low_vol_days"],
+        "volume_contraction_days":  vol_contraction["consecutive_low_vol_days"] if vol_contraction else 0,
         "qualification_reasons":    reasons_json,
         "pattern_type":             pattern_type,
         "pattern_grade":            grade,
@@ -216,11 +215,10 @@ def run_scan(tickers: list[str], dry_run: bool = False) -> list[dict]:
                 continue
             passed_s3 += 1
 
-            # Stage 4
+            # Stage 4: Volume contraction (bonus — not a gate)
             vol_contraction = check_volume_contraction(df, base["base_start_date"])
-            if vol_contraction is None:
-                continue
-            passed_s4 += 1
+            if vol_contraction:
+                passed_s4 += 1  # how many had clean vol contraction
 
             # Proximity to pivot
             current_price  = universe["current_price"]
@@ -251,13 +249,13 @@ def run_scan(tickers: list[str], dry_run: bool = False) -> list[dict]:
                 "prior_move_days":          prior_move["move_days"] if prior_move else 0,
                 "base_depth_pct":           base["base_depth_pct"],
                 "base_duration_days":       base["base_duration_days"],
-                "volume_contraction_ratio": vol_contraction["contraction_ratio"],
+                "volume_contraction_ratio": vol_contraction["contraction_ratio"] if vol_contraction else 0,
                 "adr_pct":                  round(universe["adr_pct"], 2),
                 "avg_daily_volume":         int(avg_vol_20d),
                 "distance_to_pivot_pct":    round(pct_from_pivot, 2),
                 "ma10_above_ma20":          base["ma10_above_ma20"],
                 "above_50d_ma":             base["above_50d_ma"],
-                "volume_contraction_days":  vol_contraction["consecutive_low_vol_days"],
+                "volume_contraction_days":  vol_contraction["consecutive_low_vol_days"] if vol_contraction else 0,
                 "qualification_reasons":    reasons_json,
                 "pattern_type":             pattern_type,
                 "pattern_grade":            grade,
@@ -337,7 +335,7 @@ def main():
     print(f"  Passed Stage 2 (momentum) : {stats['passed_s2']}")
     print(f"  + also had prior move (2b): {stats['passed_s2b']}")
     print(f"  Passed Stage 3 (base)     : {stats['passed_s3']}")
-    print(f"  Passed Stage 4 (vol)      : {stats['passed_s4']}")
+    print(f"  Had vol contraction (4)   : {stats['passed_s4']} (bonus — not a gate)")
     print(f"  On watchlist today    : {stats['watchlist']}")
     print(f"  Errors (skipped)      : {stats['errors']}")
 
