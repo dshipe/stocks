@@ -77,8 +77,8 @@ Modify in `scan/config.py` or override via `scan/.env`:
 | `MIN_PRICE` | $5.00 | $5.00 | R1 | |
 | `MIN_AVG_VOLUME` | 300,000 | 300,000 | R2 | |
 | `MIN_ADR_PCT` | 3.0% | 3.0% | R3 | |
-| `MIN_MOMENTUM_1M_PCT` | — | **10%** | R6a | 🔧 2026-04-29 |
-| `MIN_MOMENTUM_3M_PCT` | — | **20%** | R6b | 🔧 2026-04-29 |
+| `MIN_MOMENTUM_1M_PCT` | — | **5%** | R6a | 🔧 2026-04-29 |
+| `MIN_MOMENTUM_3M_PCT` | — | **15%** | R6b | 🔧 2026-04-29 |
 | `MIN_MOMENTUM_6M_PCT` | — | **30%** | R6c | 🔧 2026-04-29 |
 | `MIN_PRIOR_MOVE_PCT` | **30%** | **25%** | R6 (2b bonus) | 🔧 2026-04-27 |
 | `MAX_PRIOR_MOVE_DAYS` | **40** | **60** | R6 | 🔧 2026-04-27 |
@@ -135,6 +135,9 @@ R43–R46  Market Filter        → S&P above MAs, low VIX, sector uptrend
 | 2026-04-29 | `MIN_MOMENTUM_1M_PCT` | — (new) | **10%** | New Stage 2 gate parameter |
 | 2026-04-29 | `MIN_MOMENTUM_3M_PCT` | — (new) | **20%** | New Stage 2 gate parameter |
 | 2026-04-29 | `MIN_MOMENTUM_6M_PCT` | — (new) | **30%** | New Stage 2 gate parameter |
+| 2026-04-29 | `MIN_MOMENTUM_1M_PCT` | 10% | **5%** | Diagnostic: 112/174 stocks failing 1M gate alone; consolidating stocks have naturally flat 1M |
+| 2026-04-29 | `MIN_MOMENTUM_3M_PCT` | 20% | **15%** | Recovers ~20 additional stocks with strong 6M trends but moderate 3M |
+| 2026-04-29 | `MAX_BASE_VOL_RATIO` | 0.75 | **0.85** | 13 stocks (KLAC, MRVL, BKR, JBL, FIX etc.) failing Stage 4 with ratios 0.76–0.85 |
 
 ---
 
