@@ -489,5 +489,54 @@ pre-breakout setup; Qullamaggie's 5% rule is a guideline, not a hard constraint.
 
 ---
 
-*Last updated: 2026-04-29*
+---
 
+### 11. Stage 2 Redesign: Momentum Trend Filter (2026-04-29)
+
+**Problem:** The prior explosive move detector is an *event detector* — it looks for
+a specific ≥25% move within a sliding 60-day window. Once that window expires, the stock
+disappears from the watchlist even if it's still the strongest stock in the market.
+
+**Observed failure:** CVNA was on the watchlist on 2026-04-28 (valid +25% prior move in
+43 days). By 2026-04-29 the move had aged out of the 60-day window — Stage 2 returned
+None and CVNA was silently dropped. The stock itself hadn't changed; just the detection
+window.
+
+**Root cause (design):** Event detection ages out. Performance measurement doesn't.
+
+**Solution: Multi-timeframe momentum as the Stage 2 gate**
+
+Instead of "did a big move happen in the last 60 days?", ask:
+"Is this stock still a market leader right now?"
+
+```
+check_momentum_trend():
+    1M (20d) gain  ≥ 10%   (lenient — healthy consolidation expected)
+    3M (60d) gain  ≥ 20%
+    6M (120d) gain ≥ 30%
+    within 20% of 52-week high
+```
+
+This measures *current state*, not a past event. A stock in its 3rd leg up, 90 days
+after its initial explosive move, still shows strong 3M/6M momentum and qualifies.
+
+**Prior explosive move → Stage 2b (bonus grading)**
+
+`find_prior_explosive_move()` still runs, but a miss no longer drops the stock.
+When found, it contributes to the grade score (A+ vs B). When absent, `grade_setup()`
+falls back to 3M momentum for scoring. The prior move data still appears in
+`qualification_reasons` when present.
+
+**Base anchor fallback**
+
+When no prior move is found, `find_consolidation_base()` is anchored from the stock's
+most recent 52-week high date (capped so ≥5 days of base data exist).
+
+**Files changed:**
+- `scan/config.py` — added `MIN_MOMENTUM_1M/3M/6M_PCT`
+- `scan/shared/criteria.py` — added `check_momentum_trend()`, updated `grade_setup()` and `build_qualification_reasons()` signatures
+- `scan/watchlist_scanner.py` — Stage 2 wired to `check_momentum_trend`, Stage 2b is now optional, stats show both counts
+
+---
+
+*Last updated: 2026-04-29*
