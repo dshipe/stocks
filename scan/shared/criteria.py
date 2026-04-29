@@ -84,8 +84,11 @@ def find_prior_explosive_move(df: pd.DataFrame) -> dict | None:
 
     best_move = None
 
-    # Slide a window of up to MAX_PRIOR_MOVE_DAYS to find the best qualifying move
-    for end_idx in range(len(lookback_df) - 1, cfg.MAX_PRIOR_MOVE_DAYS, -1):
+    # Slide a window of up to MAX_PRIOR_MOVE_DAYS to find the best qualifying move.
+    # Cap end_idx so the detected peak always has at least MIN_BASE_DAYS trading days
+    # of data after it — otherwise find_consolidation_base returns None immediately.
+    max_end_idx = len(lookback_df) - 1 - cfg.MIN_BASE_DAYS
+    for end_idx in range(max_end_idx, cfg.MAX_PRIOR_MOVE_DAYS, -1):
         for start_idx in range(max(0, end_idx - cfg.MAX_PRIOR_MOVE_DAYS), end_idx - 4):
             low_price  = closes[start_idx]
             high_price = closes[end_idx]
