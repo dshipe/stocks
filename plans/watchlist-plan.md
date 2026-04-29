@@ -455,6 +455,39 @@ The fallback list was also updated with more current tickers.
 
 ---
 
-*Last updated: 2026-04-27*
 *Based on: `qullamaggie/breakouts/Rules.MD` and `qullamaggie/breakouts/Summary.MD`*
 *Implemented: 2026-04-27 on Ubuntu 24.04 AWS EC2, Python 3.12, SQL Server 2016*
+
+---
+
+### 10. SNDK / WDC Missing from Watchlist — Root Cause & Fix (2026-04-29)
+**Reported:** Both SNDK and WDC absent from the daily watchlist despite being in strong
+multi-month uptrends and near 52-week highs.
+
+**Root causes (two separate bugs):**
+
+**Bug 1 — `find_prior_explosive_move` sets peak_date too close to today**
+The outer loop allowed `end_idx` all the way to the most recent bar. WDC peaked April 24
+(4 trading days ago) and SNDK peaked April 27 (1 day ago). When `peak_date` is that recent,
+`find_consolidation_base` receives a `df_after` with fewer rows than `MIN_BASE_DAYS=5` and
+returns `None` — silently dropping both stocks.
+
+*Fix:* Cap `end_idx` at `len(lookback_df) - 1 - MIN_BASE_DAYS` so any detected peak always
+has at least 5 subsequent trading days of data for base formation.
+
+**Bug 2 — `MAX_DIST_FROM_PIVOT_PCT` too tight for SNDK**
+After Bug 1 is fixed, the peak shifts back to ~April 21. The new base high (pivot) is the
+April 27 all-time high of $1,070. SNDK's current price ($1,002) is 6.3% below the pivot —
+just outside the old 5% trigger.
+
+*Fix:* Raise `MAX_DIST_FROM_PIVOT_PCT` from **5% → 8%**. 8% still represents a tight
+pre-breakout setup; Qullamaggie's 5% rule is a guideline, not a hard constraint.
+
+**Changes committed:**
+- `scan/shared/criteria.py` commit `4f06f18` — peak end_idx cap
+- `scan/config.py` commit `a75b6e6` — MAX_DIST_FROM_PIVOT_PCT 5% → 8%
+
+---
+
+*Last updated: 2026-04-29*
+
