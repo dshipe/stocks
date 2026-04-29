@@ -34,8 +34,8 @@ MIN_ADR_PCT         = float(os.getenv("MIN_ADR_PCT",    "3.0"))    # R3
 # ─── Stage 2: Momentum Trend Filter (gating condition — added 2026-04-29) ────
 # Replaces prior explosive move as the primary Stage 2 gate.
 # Measures current performance vs historical — never ages out.
-MIN_MOMENTUM_1M_PCT  = float(os.getenv("MIN_MOMENTUM_1M_PCT", "10.0"))  # R6a — 1M (20d) gain >= 10% (lenient: consolidation expected)
-MIN_MOMENTUM_3M_PCT  = float(os.getenv("MIN_MOMENTUM_3M_PCT", "20.0"))  # R6b — 3M (60d) gain >= 20%
+MIN_MOMENTUM_1M_PCT  = float(os.getenv("MIN_MOMENTUM_1M_PCT", "5.0"))   # R6a — 1M (20d) gain >= 5% (lowered from 10% 2026-04-29: 112 stocks were failing on 1M alone)
+MIN_MOMENTUM_3M_PCT  = float(os.getenv("MIN_MOMENTUM_3M_PCT", "15.0"))  # R6b — 3M (60d) gain >= 15% (lowered from 20% 2026-04-29: recovers ~20 additional stocks)
 MIN_MOMENTUM_6M_PCT  = float(os.getenv("MIN_MOMENTUM_6M_PCT", "30.0"))  # R6c — 6M (120d) gain >= 30%
 
 # ─── Stage 2b: Prior Explosive Move (bonus — grading only, not a gate) ───────
@@ -50,7 +50,7 @@ MAX_BASE_DAYS       = int(os.getenv("MAX_BASE_DAYS",    "40"))    # R11
 MAX_BASE_DEPTH_PCT  = float(os.getenv("MAX_BASE_DEPTH_PCT", "20.0")) # R12 — raised from 15% (2026-04-27)
 
 # ─── Stage 4: Volume Contraction ──────────────────────────────────────────────
-MAX_BASE_VOL_RATIO      = float(os.getenv("MAX_BASE_VOL_RATIO",      "0.75")) # R19 — raised from 0.60 (2026-04-27)
+MAX_BASE_VOL_RATIO      = float(os.getenv("MAX_BASE_VOL_RATIO",      "0.85")) # R19 — raised from 0.75 (2026-04-29: KLAC, MRVL, BKR etc. failing at 0.75)
 MIN_CONSEC_LOW_VOL_DAYS = int(os.getenv("MIN_CONSEC_LOW_VOL_DAYS",   "3"))    # R20
 
 # ─── Watchlist Trigger ─────────────────────────────────────────────────────────
