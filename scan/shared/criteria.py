@@ -269,10 +269,13 @@ def find_consolidation_base(df: pd.DataFrame, peak_date: date) -> dict | None:
 
 def check_volume_contraction(df: pd.DataFrame, base_start_date: date) -> dict | None:
     """
-    Stage 4: Confirm that volume dried up during the consolidation base.
+    Stage 4 (bonus grading — not a gate since 2026-04-29):
+    Confirm that volume dried up during the consolidation base.
+    Result used to boost grade (A+/A/B/C) but a None return no longer
+    drops the stock from the watchlist.
 
-    Rules applied: R19 (base avg vol <= 60% of 50d avg),
-                   R20 (>= 3 consecutive low-vol days before potential breakout)
+    Rules applied: R19 (base avg vol <= MAX_BASE_VOL_RATIO of 50d avg),
+                   R20 (>= MIN_CONSEC_LOW_VOL_DAYS consecutive low-vol days)
 
     Returns dict with contraction metrics or None if criteria not met.
     """
@@ -347,7 +350,7 @@ def detect_pattern_type(df: pd.DataFrame, base: dict) -> str:
 def grade_setup(
     prior_move: dict | None,
     base: dict,
-    vol_contraction: dict,
+    vol_contraction: dict | None,
     pattern_type: str,
     momentum: dict | None = None,
 ) -> str:
@@ -391,14 +394,20 @@ def grade_setup(
     elif depth <= 12:
         score += 1
 
-    # Volume contraction scoring
-    ratio = vol_contraction.get("contraction_ratio", 1.0)
-    if ratio <= 0.30:
-        score += 3
-    elif ratio <= 0.45:
-        score += 2
-    elif ratio <= 0.60:
-        score += 1
+    # Volume contraction scoring (bonus — not a gate since 2026-04-29)
+    if vol_contraction:
+        ratio = vol_contraction.get("contraction_ratio", 1.0)
+        if ratio <= 0.30:
+            score += 3
+        elif ratio <= 0.45:
+            score += 2
+        elif ratio <= 0.60:
+            score += 1
+        # Bonus for consecutive quiet days
+        consec = vol_contraction.get("consecutive_low_vol_days", 0)
+        if consec >= 5:
+            score += 1
+    # No vol_contraction → no bonus, stock still qualifies
 
     # Pattern bonus
     if pattern_type in ("VCP", "HTF"):
@@ -475,7 +484,7 @@ def check_breakout(intraday: dict, base: dict, avg_vol_20d: float) -> dict | Non
 def build_qualification_reasons(
     prior_move: dict | None,
     base: dict,
-    vol_contraction: dict,
+    vol_contraction: dict | None,
     pattern_type: str,
     grade: str,
     momentum: dict | None = None,
@@ -520,16 +529,18 @@ def build_qualification_reasons(
     if base.get("ma10_above_ma20"):
         reasons.append("10-day MA above 20-day MA (short-term bullish structure)")
 
-    # Volume contraction
-    ratio_pct = vol_contraction["contraction_ratio"] * 100
-    reasons.append(
-        f"Volume contraction: base avg = {ratio_pct:.0f}% of 50-day avg "
-        f"(threshold: {cfg.MAX_BASE_VOL_RATIO * 100:.0f}%)"
-    )
-    reasons.append(
-        f"Consecutive below-average volume days: {vol_contraction['consecutive_low_vol_days']} "
-        f"(minimum: {cfg.MIN_CONSEC_LOW_VOL_DAYS})"
-    )
+    # Volume contraction (bonus — None means no contraction detected)
+    if vol_contraction:
+        ratio_pct = vol_contraction["contraction_ratio"] * 100
+        reasons.append(
+            f"Volume contraction: base avg = {ratio_pct:.0f}% of 50-day avg "
+            f"(threshold: {cfg.MAX_BASE_VOL_RATIO * 100:.0f}%)"
+        )
+        reasons.append(
+            f"Consecutive below-average volume days: {vol_contraction['consecutive_low_vol_days']}"
+        )
+    else:
+        reasons.append("Volume contraction: not detected (no grade bonus)")
 
     # Pattern and grade
     reasons.append(f"Pattern detected: {pattern_type}")
