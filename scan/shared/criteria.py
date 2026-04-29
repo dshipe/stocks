@@ -61,7 +61,68 @@ def check_universe_filter(df: pd.DataFrame, ticker: str) -> dict | None:
     }
 
 
-# ─── Stage 2: Prior Explosive Move ────────────────────────────────────────────
+
+# ─── Stage 2: Momentum Trend Filter ──────────────────────────────────────────
+
+def check_momentum_trend(df: pd.DataFrame) -> dict | None:
+    """
+    Stage 2: Multi-timeframe momentum trend filter.
+
+    Ensures the stock is a current market leader by measuring actual price
+    performance over 1M (20d), 3M (60d), and 6M (120d) windows.
+    This never ages out — it measures current state, not a past event.
+
+    Rules applied:
+        R6a — 1M (20d) gain >= MIN_MOMENTUM_1M_PCT%
+        R6b — 3M (60d) gain >= MIN_MOMENTUM_3M_PCT%
+        R6c — 6M (120d) gain >= MIN_MOMENTUM_6M_PCT%
+        R9  — within MAX_FROM_52W_HIGH% of 52-week high
+
+    Added 2026-04-29: Replaces find_prior_explosive_move() as the Stage 2 gate.
+    Prior explosive move (find_prior_explosive_move) is still run as Stage 2b
+    and used as bonus scoring in grade_setup() — but failing it does NOT exclude
+    the stock from the watchlist.
+
+    Returns dict with performance metrics, or None if any threshold is missed.
+    """
+    if len(df) < 120:
+        return None
+
+    price = float(df["Close"].iloc[-1])
+
+    def pct_gain(days: int) -> float | None:
+        if len(df) < days:
+            return None
+        old = float(df["Close"].iloc[-days])
+        return ((price - old) / old * 100) if old > 0 else None
+
+    pct_1m = pct_gain(20)
+    pct_3m = pct_gain(60)
+    pct_6m = pct_gain(120)
+
+    if pct_1m is None or pct_1m < cfg.MIN_MOMENTUM_1M_PCT:
+        return None
+    if pct_3m is None or pct_3m < cfg.MIN_MOMENTUM_3M_PCT:
+        return None
+    if pct_6m is None or pct_6m < cfg.MIN_MOMENTUM_6M_PCT:
+        return None
+
+    # R9: Must be near 52-week high
+    high_52w = float(df["High"].tail(252).max())
+    pct_from_52w = ((high_52w - price) / high_52w * 100) if high_52w > 0 else 100.0
+    if pct_from_52w > cfg.MAX_FROM_52W_HIGH:
+        return None
+
+    return {
+        "pct_1m":            round(pct_1m, 2),
+        "pct_3m":            round(pct_3m, 2),
+        "pct_6m":            round(pct_6m, 2),
+        "pct_from_52w_high": round(pct_from_52w, 2),
+    }
+
+
+# ─── Stage 2b: Prior Explosive Move (bonus — not a gate) ──────────────────────
+# ─── Stage 2b: Prior Explosive Move (bonus grading only) ────────────────────────
 
 def find_prior_explosive_move(df: pd.DataFrame) -> dict | None:
     """
@@ -284,30 +345,42 @@ def detect_pattern_type(df: pd.DataFrame, base: dict) -> str:
 
 
 def grade_setup(
-    prior_move: dict,
+    prior_move: dict | None,
     base: dict,
     vol_contraction: dict,
     pattern_type: str,
+    momentum: dict | None = None,
 ) -> str:
     """
     Assign a quality grade (A+, A, B, C) to the setup.
 
     Grading rubric from qullamaggie/breakouts/Index.MD:
-        A+: 60%+ prior move, 4+ VCP contractions, volume near zero, strong catalyst
-        A : 40%+ prior move, good volume dry-up
-        B : 30%+ prior move, adequate contraction
+        A+: 60%+ prior move (or 3M momentum), 4+ VCP contractions, volume near zero
+        A : 40%+ prior move (or 3M momentum), good volume dry-up
+        B : 30%+ prior move (or 3M momentum), adequate contraction
         C : borderline
+
+    prior_move is optional (Stage 2b bonus); falls back to 3M momentum for scoring.
     """
     score = 0
 
-    # Prior move scoring
-    move_pct = prior_move.get("move_pct", 0)
-    if move_pct >= 60:
-        score += 3
-    elif move_pct >= 40:
-        score += 2
-    elif move_pct >= 30:
-        score += 1
+    # Prior move scoring — use prior_move if found, else 3M momentum as proxy
+    if prior_move:
+        move_pct = prior_move.get("move_pct", 0)
+        if move_pct >= 60:
+            score += 3
+        elif move_pct >= 40:
+            score += 2
+        elif move_pct >= 30:
+            score += 1
+    elif momentum:
+        pct_3m = momentum.get("pct_3m", 0)
+        if pct_3m >= 60:
+            score += 3
+        elif pct_3m >= 40:
+            score += 2
+        elif pct_3m >= 20:
+            score += 1
 
     # Base depth scoring
     depth = base.get("base_depth_pct", 15)
@@ -400,11 +473,12 @@ def check_breakout(intraday: dict, base: dict, avg_vol_20d: float) -> dict | Non
 # ─── Qualification Reasons ────────────────────────────────────────────────────
 
 def build_qualification_reasons(
-    prior_move: dict,
+    prior_move: dict | None,
     base: dict,
     vol_contraction: dict,
     pattern_type: str,
     grade: str,
+    momentum: dict | None = None,
 ) -> str:
     """
     Build a JSON list of human-readable strings explaining exactly why
@@ -412,17 +486,24 @@ def build_qualification_reasons(
     """
     reasons = []
 
-    # Prior move
-    reasons.append(
-        f"Prior move: +{prior_move['move_pct']:.1f}% in {prior_move['move_days']} trading days"
-    )
-    reasons.append(
-        f"Volume surge during move: {prior_move['vol_surge_days']} day(s) with 2x+ avg volume"
-    )
-    if "pct_from_52w_high" in prior_move:
+    # Momentum trend (Stage 2 — always present)
+    if momentum:
         reasons.append(
-            f"Distance from 52-week high: {prior_move['pct_from_52w_high']:.1f}% "
+            f"Momentum: +{momentum['pct_1m']:.1f}% (1M) / "
+            f"+{momentum['pct_3m']:.1f}% (3M) / +{momentum['pct_6m']:.1f}% (6M)"
+        )
+        reasons.append(
+            f"Distance from 52-week high: {momentum['pct_from_52w_high']:.1f}% "
             f"(threshold: {cfg.MAX_FROM_52W_HIGH}%)"
+        )
+
+    # Prior move (Stage 2b — bonus, may be absent)
+    if prior_move:
+        reasons.append(
+            f"Prior move: +{prior_move['move_pct']:.1f}% in {prior_move['move_days']} trading days"
+        )
+        reasons.append(
+            f"Volume surge during move: {prior_move['vol_surge_days']} day(s) with 2x+ avg volume"
         )
 
     # Base
