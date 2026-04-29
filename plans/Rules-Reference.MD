@@ -86,7 +86,7 @@ Modify in `scan/config.py` or override via `scan/.env`:
 | `MAX_BASE_DEPTH_PCT` | **15%** | **20%** | R12 | 🔧 2026-04-27 |
 | `MAX_BASE_VOL_RATIO` | **60%** | **75%** | R19 | 🔧 2026-04-27 |
 | `MIN_CONSEC_LOW_VOL_DAYS` | 3 | 3 | R20 | |
-| `MAX_DIST_FROM_PIVOT_PCT` | 5% | 5% | Watchlist trigger | |
+| `MAX_DIST_FROM_PIVOT_PCT` | 5% | **8%** | Watchlist trigger | 🔧 2026-04-29 |
 | `MIN_BREAKOUT_VOL_RATIO` | 1.5× | 1.5× | R24 | |
 | `MAX_CLOSE_FROM_HIGH_PCT` | 5% | 5% | R25 | |
 
@@ -124,8 +124,10 @@ R43–R46  Market Filter        → S&P above MAs, low VIX, sector uptrend
 | 2026-04-27 | `MAX_PRIOR_MOVE_DAYS` | 40 days | 60 days | Analysis showed 29 additional stocks would qualify; valid setups often form 10–12 weeks after the explosive move |
 | 2026-04-27 | `MAX_BASE_VOL_RATIO` | 60% | 75% | After prior move changes, Stage 4 became the binding constraint; loosened to capture setups with adequate but not extreme volume contraction |
 | 2026-04-27 | `MAX_BASE_DEPTH_PCT` | 15% | 20% | 21 stocks failing Stage 3 due to depth > 15%; energy/commodity stocks form wider bases by nature. Analysis showed +12 additional stocks at 20% threshold |
+| 2026-04-29 | `MAX_DIST_FROM_PIVOT_PCT` | 5% | **8%** | SNDK was 6.3% below its pivot after a brief pullback from all-time high — a valid pre-breakout setup excluded by the old 5% trigger |
+| 2026-04-29 | `find_prior_explosive_move` logic | uncapped end_idx | capped at `len-1-MIN_BASE_DAYS` | WDC peaked 4 days ago; uncapped loop set peak_date=today leaving <5 days for base detection. Both SNDK and WDC were silently dropped at Stage 3 |
 
 ---
 
 *Source: `qullamaggie/breakouts/Rules.MD`*
-*Last updated: 2026-04-27*
+*Last updated: 2026-04-29*
