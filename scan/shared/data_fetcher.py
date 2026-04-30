@@ -31,51 +31,30 @@ def get_ticker_universe() -> list[str]:
     """
     Return a deduplicated list of tickers to scan.
 
-    Primary source: S&P 500 from Wikipedia (via requests with browser User-Agent).
-    Secondary: Nasdaq-100 from Wikipedia.
+    Primary source: yahoo_fin.stock_info for S&P 500 and Nasdaq tickers.
     Falls back to a curated hardcoded list if both are unreachable.
     """
-    import requests
-    from io import StringIO
-
     tickers = []
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
-        )
-    }
 
     # S&P 500
     try:
-        resp = requests.get(
-            "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
-            headers=headers, timeout=15
-        )
-        resp.raise_for_status()
-        tables = pd.read_html(StringIO(resp.text), attrs={"id": "constituents"})
-        sp500 = tables[0]["Symbol"].tolist()
+        from yahoo_fin import stock_info as si
+        sp500 = si.tickers_sp500()
         sp500 = [t.replace(".", "-") for t in sp500]
         tickers.extend(sp500)
-        logger.info(f"Loaded {len(sp500)} S&P 500 tickers from Wikipedia")
+        logger.info(f"Loaded {len(sp500)} S&P 500 tickers from yahoo_fin")
     except Exception as e:
-        logger.warning(f"Could not fetch S&P 500 from Wikipedia: {e}")
+        logger.warning(f"Could not fetch S&P 500 from yahoo_fin: {e}")
 
-    # Nasdaq-100
+    # Nasdaq
     try:
-        resp = requests.get(
-            "https://en.wikipedia.org/wiki/Nasdaq-100",
-            headers=headers, timeout=15
-        )
-        resp.raise_for_status()
-        tables = pd.read_html(StringIO(resp.text), attrs={"id": "constituents"})
-        ndx = tables[0]["Ticker"].tolist()
-        ndx = [t.replace(".", "-") for t in ndx]
-        tickers.extend(ndx)
-        logger.info(f"Loaded {len(ndx)} Nasdaq-100 tickers from Wikipedia")
+        from yahoo_fin import stock_info as si
+        nasdaq = si.tickers_nasdaq()
+        nasdaq = [t.replace(".", "-") for t in nasdaq]
+        tickers.extend(nasdaq)
+        logger.info(f"Loaded {len(nasdaq)} Nasdaq tickers from yahoo_fin")
     except Exception as e:
-        logger.warning(f"Could not fetch Nasdaq-100 from Wikipedia: {e}")
+        logger.warning(f"Could not fetch Nasdaq tickers from yahoo_fin: {e}")
 
     # Deduplicate, remove blank/bad entries
     tickers = sorted(set(t for t in tickers if t and isinstance(t, str) and len(t) <= 5))
