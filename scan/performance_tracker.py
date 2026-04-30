@@ -33,8 +33,10 @@ import yfinance as yf
 from shared.db_writer import (
     get_pending_watchlist_performance,
     get_pending_breakout_performance,
+    get_pending_runner_performance,
     upsert_watchlist_performance,
     upsert_breakout_performance,
+    upsert_runner_performance,
     test_connection,
 )
 from shared.data_fetcher import fetch_history
@@ -158,6 +160,101 @@ def update_watchlist_entries(dry_run: bool = False) -> int:
 
     return updated
 
+
+
+
+# ─── Runner Performance ─────────────────────────────────────────────────────────────────────────
+
+def update_runner_entries(dry_run: bool = False) -> int:
+    """Fill in performance data for all pending runner entries. Returns count updated."""
+    import pyodbc
+    import config as cfg
+
+    pending = get_pending_runner_performance()
+    logger.info(f"Found {len(pending)} runner entries needing performance data")
+    updated = 0
+
+    for row in pending:
+        ticker      = row["ticker"]
+        scan_date   = row["scan_date"]
+        entry_price = row["entry_price"]
+        if not entry_price:
+            continue
+
+        df = fetch_history(ticker, days=100)
+        if df is None:
+            logger.warning(f"Could not fetch history for runner {ticker}")
+            continue
+
+        def get_price(n: int) -> float | None:
+            target = trading_day_offset(scan_date, n)
+            if target > date.today():
+                return None
+            return get_close_on_or_after(df, target)
+
+        p1  = get_price(1);  p5  = get_price(5)
+        p10 = get_price(10); p20 = get_price(20); p60 = get_price(60)
+
+        # did_break_out: price made new 20d high within 20 trading days
+        did_break_out = False
+        pre_df = df[df.index.date <= scan_date]
+        high_at_scan = float(pre_df["High"].tail(20).max()) if not pre_df.empty else 0
+        if high_at_scan > 0:
+            w_end = trading_day_offset(scan_date, 20)
+            w_df  = df[(df.index.date > scan_date) & (df.index.date <= w_end)]
+            if not w_df.empty and w_df["High"].max() > high_at_scan:
+                did_break_out = True
+
+        # did_set_up: appeared in watchlist_entries after scan_date
+        did_set_up = False; days_to_setup = None
+        try:
+            conn2   = pyodbc.connect(cfg.DB_CONNECTION_STRING, timeout=10)
+            cursor2 = conn2.cursor()
+            cursor2.execute(
+                "SELECT MIN(scan_date) FROM watchlist_entries WHERE ticker = ? AND scan_date > ?",
+                (ticker, scan_date)
+            )
+            result = cursor2.fetchone()
+            conn2.close()
+            if result and result[0]:
+                did_set_up    = True
+                days_to_setup = (result[0] - scan_date).days
+        except Exception:
+            pass
+
+        # max_gain within 20 trading days
+        max_gain_pct = None; max_gain_date = None
+        w20_end = trading_day_offset(scan_date, 20)
+        w20_df  = df[(df.index.date >= scan_date) & (df.index.date <= w20_end)]
+        if not w20_df.empty:
+            best_idx      = w20_df["Close"].idxmax()
+            max_gain_pct  = pct_change(entry_price, float(w20_df["Close"].max()))
+            max_gain_date = best_idx.date()
+
+        perf = {
+            "ticker": ticker, "scan_date": scan_date,
+            "price_1d": p1,   "price_5d":  p5,
+            "price_10d": p10, "price_20d": p20, "price_60d": p60,
+            "pct_change_1d":  pct_change(entry_price, p1),
+            "pct_change_5d":  pct_change(entry_price, p5),
+            "pct_change_10d": pct_change(entry_price, p10),
+            "pct_change_20d": pct_change(entry_price, p20),
+            "pct_change_60d": pct_change(entry_price, p60),
+            "did_set_up":     did_set_up,
+            "days_to_setup":  days_to_setup,
+            "did_break_out":  did_break_out,
+            "max_gain_pct":   max_gain_pct,
+            "max_gain_date":  max_gain_date,
+        }
+
+        if not dry_run:
+            if upsert_runner_performance(row["runner_id"], perf):
+                updated += 1
+        else:
+            logger.info(f"[DRY RUN] Would update runner perf for {ticker}: 5d={perf['pct_change_5d']}%")
+            updated += 1
+
+    return updated
 
 # ─── Breakout Performance ─────────────────────────────────────────────────────
 
@@ -297,9 +394,11 @@ def main():
 
     w_updated = update_watchlist_entries(dry_run=args.dry_run)
     b_updated = update_breakout_entries(dry_run=args.dry_run)
+    r_updated = update_runner_entries(dry_run=args.dry_run)
 
     print(f"\n  Watchlist entries updated : {w_updated}")
     print(f"  Breakout entries updated  : {b_updated}")
+    print(f"  Runner entries updated    : {r_updated}")
     if args.dry_run:
         print("  [DRY RUN] No data written to database.\n")
     else:

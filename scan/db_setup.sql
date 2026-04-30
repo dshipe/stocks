@@ -302,5 +302,44 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_runner_entries_scan_da
         ON runner_entries (scan_date, ticker);
 GO
 
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- runner_performance: price outcomes for runner entries
+-- ─────────────────────────────────────────────────────────────────────────────
+
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'runner_performance')
+BEGIN
+    CREATE TABLE runner_performance (
+        id              INT IDENTITY(1,1) PRIMARY KEY,
+        runner_id       INT           NOT NULL,
+        ticker          VARCHAR(10),
+        scan_date       DATE,
+        price_1d        DECIMAL(10,2),
+        price_5d        DECIMAL(10,2),
+        price_10d       DECIMAL(10,2),
+        price_20d       DECIMAL(10,2),
+        price_60d       DECIMAL(10,2),
+        pct_change_1d   DECIMAL(6,2),
+        pct_change_5d   DECIMAL(6,2),
+        pct_change_10d  DECIMAL(6,2),
+        pct_change_20d  DECIMAL(6,2),
+        pct_change_60d  DECIMAL(6,2),
+        did_set_up      BIT,           -- appeared in watchlist_entries within 60 days
+        days_to_setup   INT,           -- days from runner scan_date to first watchlist entry
+        did_break_out   BIT,           -- price exceeded 20-day high within 20 trading days
+        max_gain_pct    DECIMAL(6,2),
+        max_gain_date   DATE,
+        updated_at      DATETIME       DEFAULT GETDATE(),
+        FOREIGN KEY (runner_id) REFERENCES runner_entries(id)
+    );
+    PRINT 'Created table: runner_performance';
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_runner_performance_runner_id')
+    CREATE UNIQUE INDEX IX_runner_performance_runner_id
+        ON runner_performance (runner_id);
+GO
+
 PRINT 'Schema setup complete.';
 GO

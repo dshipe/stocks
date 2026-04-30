@@ -288,6 +288,147 @@ def insert_breakout_entry(data: dict) -> int | None:
         return None
 
 
+
+
+def get_todays_runners() -> list[dict]:
+    """Return all runner entries for today, ordered by 3M momentum descending."""
+    sql = """
+        SELECT id, ticker, price_at_scan, pct_1m, pct_3m, pct_6m,
+               prior_move_pct, prior_move_days
+        FROM   runner_entries
+        WHERE  scan_date = CAST(GETDATE() AS DATE)
+        ORDER  BY pct_3m DESC
+    """
+    try:
+        conn   = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(sql)
+        rows = cursor.fetchall()
+        conn.close()
+        return [
+            {
+                "runner_entry_id": r[0],
+                "ticker":          r[1],
+                "price_at_scan":   float(r[2]) if r[2] else None,
+                "pct_1m":          float(r[3]) if r[3] else None,
+                "pct_3m":          float(r[4]) if r[4] else None,
+                "pct_6m":          float(r[5]) if r[5] else None,
+                "prior_move_pct":  float(r[6]) if r[6] else None,
+                "prior_move_days": int(r[7])   if r[7] else None,
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        logger.error(f"get_todays_runners: {e}")
+        return []
+
+
+def get_pending_runner_performance() -> list[dict]:
+    """Return runner entries missing at least some performance data (last 90 days)."""
+    sql = """
+        SELECT e.id, e.ticker, e.scan_date, e.price_at_scan
+        FROM   runner_entries e
+        LEFT JOIN runner_performance p ON p.runner_id = e.id
+        WHERE  e.scan_date >= DATEADD(day, -90, CAST(GETDATE() AS DATE))
+          AND  (p.id IS NULL OR p.price_60d IS NULL)
+        ORDER  BY e.scan_date DESC
+    """
+    try:
+        conn   = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(sql)
+        rows = cursor.fetchall()
+        conn.close()
+        return [
+            {
+                "runner_id":   r[0],
+                "ticker":      r[1],
+                "scan_date":   r[2],
+                "entry_price": float(r[3]) if r[3] else None,
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        logger.error(f"get_pending_runner_performance: {e}")
+        return []
+
+
+def upsert_runner_performance(runner_id: int, perf: dict) -> bool:
+    """Insert or update a runner_performance row."""
+    try:
+        conn   = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            "SELECT id FROM runner_performance WHERE runner_id = ?",
+            (runner_id,)
+        )
+        existing = cursor.fetchone()
+
+        if existing:
+            sql = """
+                UPDATE runner_performance SET
+                    price_1d       = COALESCE(?, price_1d),
+                    price_5d       = COALESCE(?, price_5d),
+                    price_10d      = COALESCE(?, price_10d),
+                    price_20d      = COALESCE(?, price_20d),
+                    price_60d      = COALESCE(?, price_60d),
+                    pct_change_1d  = COALESCE(?, pct_change_1d),
+                    pct_change_5d  = COALESCE(?, pct_change_5d),
+                    pct_change_10d = COALESCE(?, pct_change_10d),
+                    pct_change_20d = COALESCE(?, pct_change_20d),
+                    pct_change_60d = COALESCE(?, pct_change_60d),
+                    did_set_up     = COALESCE(?, did_set_up),
+                    days_to_setup  = COALESCE(?, days_to_setup),
+                    did_break_out  = COALESCE(?, did_break_out),
+                    max_gain_pct   = COALESCE(?, max_gain_pct),
+                    max_gain_date  = COALESCE(?, max_gain_date),
+                    updated_at     = GETDATE()
+                WHERE runner_id = ?
+            """
+            cursor.execute(sql, (
+                perf.get("price_1d"),  perf.get("price_5d"),
+                perf.get("price_10d"), perf.get("price_20d"), perf.get("price_60d"),
+                perf.get("pct_change_1d"),  perf.get("pct_change_5d"),
+                perf.get("pct_change_10d"), perf.get("pct_change_20d"),
+                perf.get("pct_change_60d"),
+                1 if perf.get("did_set_up")    else None,
+                perf.get("days_to_setup"),
+                1 if perf.get("did_break_out") else None,
+                perf.get("max_gain_pct"),
+                perf.get("max_gain_date"),
+                runner_id,
+            ))
+        else:
+            sql = """
+                INSERT INTO runner_performance (
+                    runner_id, ticker, scan_date,
+                    price_1d, price_5d, price_10d, price_20d, price_60d,
+                    pct_change_1d, pct_change_5d, pct_change_10d, pct_change_20d, pct_change_60d,
+                    did_set_up, days_to_setup, did_break_out, max_gain_pct, max_gain_date
+                ) VALUES (?,?,?,  ?,?,?,?,?,  ?,?,?,?,?,  ?,?,?,?,?)
+            """
+            cursor.execute(sql, (
+                runner_id, perf.get("ticker"), perf.get("scan_date"),
+                perf.get("price_1d"),  perf.get("price_5d"),
+                perf.get("price_10d"), perf.get("price_20d"), perf.get("price_60d"),
+                perf.get("pct_change_1d"),  perf.get("pct_change_5d"),
+                perf.get("pct_change_10d"), perf.get("pct_change_20d"),
+                perf.get("pct_change_60d"),
+                1 if perf.get("did_set_up")    else 0,
+                perf.get("days_to_setup"),
+                1 if perf.get("did_break_out") else 0,
+                perf.get("max_gain_pct"),
+                perf.get("max_gain_date"),
+            ))
+
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.error(f"upsert_runner_performance({runner_id}): {e}")
+        return False
+
 # ─── Performance Tracking ──────────────────────────────────────────────────────
 
 def get_pending_watchlist_performance() -> list[dict]:

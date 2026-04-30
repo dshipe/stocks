@@ -44,8 +44,10 @@ from shared.criteria import (
     grade_setup,
 )
 from shared.telegram_notify import send_breakout_alert, send_breakout_scan_summary
+import pandas as pd
 from shared.db_writer import (
     get_todays_watchlist,
+    get_todays_runners,
     breakout_already_logged_today,
     insert_breakout_entry,
     test_connection,
@@ -108,11 +110,9 @@ def send_notification(ticker: str, breakout: dict, entry: dict) -> None:
         from twilio.rest import Client
         client = Client(cfg.TWILIO_SID, cfg.TWILIO_TOKEN)
         msg = (
-            f"BREAKOUT: {ticker} ({entry.get('pattern_type','')}/{entry.get('pattern_grade','')})
-"
-            f"Price: ${breakout['breakout_price']:.2f} | Pivot: ${breakout['pivot_price']:.2f}
-"
-            f"Vol: {breakout['volume_ratio']:.1f}x avg"
+            f"BREAKOUT: {ticker} ({entry.get('pattern_type','')} / {entry.get('pattern_grade','')})"
+            f"\nPrice: ${breakout['breakout_price']:.2f} | Pivot: ${breakout['pivot_price']:.2f}"
+            f"\nVol: {breakout['volume_ratio']:.1f}x avg"
         )
         client.messages.create(body=msg, from_=cfg.TWILIO_FROM, to=cfg.NOTIFY_PHONE)
         logger.info(f"SMS sent for {ticker} breakout")
@@ -227,8 +227,94 @@ def check_ticker_breakout(watchlist_entry: dict) -> dict | None:
     }
 
 
+
+def check_runner_breakout(runner_entry: dict) -> dict | None:
+    """
+    Check if a runner has formed a base intraday and is breaking out.
+    Runners don't have a pre-computed pivot; base detection runs on the fly.
+    Returns a breakout result dict or None if no base or no breakout.
+    """
+    ticker = runner_entry["ticker"]
+
+    intraday = fetch_intraday(ticker)
+    if intraday is None:
+        return None
+
+    df = fetch_history(ticker, days=60)
+    if df is None:
+        return None
+    df = compute_indicators(df)
+    last = df.iloc[-1]
+
+    avg_vol_20d = float(last["avg_vol_20d"]) if not pd.isna(last["avg_vol_20d"]) else 0
+
+    prior_move = find_prior_explosive_move(df)
+    if prior_move is None:
+        return None
+
+    base = find_consolidation_base(df, prior_move["peak_date"])
+    if base is None:
+        return None  # Still running — no base formed yet
+
+    breakout = check_breakout(intraday, base, avg_vol_20d)
+    if breakout is None:
+        return None
+
+    vol_contraction = check_volume_contraction(df, base.get("base_start_date", df.index[-20].date()))
+    if vol_contraction is None:
+        vol_contraction = {"contraction_ratio": 0.5, "consecutive_low_vol_days": 3, "avg_vol_50d": avg_vol_20d}
+
+    pattern_type = detect_pattern_type(df, base)
+    grade        = grade_setup(prior_move, base, vol_contraction, pattern_type)
+    reasons_json = build_qualification_reasons(prior_move, base, vol_contraction, pattern_type, grade)
+
+    stop_price     = round(base.get("base_low", breakout["breakout_price"] * 0.95) * 0.995, 4)
+    risk_per_share = round(breakout["breakout_price"] - stop_price, 4)
+    rr_ratio       = round((breakout["breakout_price"] * 0.15) / risk_per_share, 2) if risk_per_share > 0 else 0
+
+    sp500_ctx = get_sp500_context()
+
+    return {
+        "scan_date":                date.today(),
+        "ticker":                   ticker,
+        "breakout_price":           breakout["breakout_price"],
+        "pivot_price":              breakout["pivot_price"],
+        "breakout_volume":          breakout["breakout_volume"],
+        "avg_volume_20d":           int(avg_vol_20d),
+        "volume_ratio":             breakout["volume_ratio"],
+        "candle_close_pct":         breakout["candle_close_pct"],
+        "prior_move_pct":           prior_move["move_pct"],
+        "prior_move_days":          prior_move["move_days"],
+        "base_depth_pct":           base.get("base_depth_pct"),
+        "base_duration_days":       base.get("base_duration_days"),
+        "volume_contraction_ratio": vol_contraction.get("contraction_ratio"),
+        "adr_pct":                  float(last["adr_pct"]) if not pd.isna(last["adr_pct"]) else None,
+        "avg_daily_volume":         int(avg_vol_20d),
+        "ma10_above_ma20":          base.get("ma10_above_ma20", True),
+        "above_50d_ma":             base.get("above_50d_ma", True),
+        "stop_price":               stop_price,
+        "atr_14":                   float(last["atr_14"]) if not pd.isna(last["atr_14"]) else None,
+        "risk_per_share":           risk_per_share,
+        "suggested_rr_ratio":       rr_ratio,
+        "pattern_type":             pattern_type,
+        "pattern_grade":            grade,
+        "is_episodic_pivot":        False,
+        "catalyst_notes":           "promoted from runners list",
+        "sp500_above_50d_ma":       sp500_ctx.get("sp500_above_50d_ma"),
+        "sp500_above_200d_ma":      sp500_ctx.get("sp500_above_200d_ma"),
+        "vix_level":                None,
+        "sector_trend":             None,
+        "qualification_reasons":    reasons_json,
+        "was_on_watchlist":         False,
+        "watchlist_entry_id":       None,
+        "_pct_above_pivot":         breakout["pct_above_pivot"],
+        "_source":                  "runner",
+    }
+
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Intraday breakout scanner (watchlist-only)")
+    parser = argparse.ArgumentParser(description="Intraday breakout scanner (watchlist + runners)")
     parser.add_argument("--force",   action="store_true", help="Run even if market is closed")
     parser.add_argument("--dry-run", action="store_true", help="Print without writing to DB")
     args = parser.parse_args()
@@ -239,83 +325,97 @@ def main():
         now_str = str(date.today())
 
     print(f"\n{'='*65}")
-    print(f"  BREAKOUT SCAN — {now_str} EST")
+    print(f"  BREAKOUT SCAN \u2014 {now_str} EST")
     print(f"{'='*65}")
 
-    # Check market hours
     if not args.force and not is_market_open():
         print("  Market is closed. Exiting.\n")
-        logger.info("Market closed — breakout scanner exiting.")
         sys.exit(0)
 
-    # Verify DB connection
     if not args.dry_run:
         if not test_connection():
             logger.error("Cannot connect to SQL Server. Use --dry-run to test without DB.")
             sys.exit(1)
 
-    # Load today's watchlist
     watchlist = get_todays_watchlist()
-    if not watchlist:
-        print("  No watchlist for today. Run watchlist_scanner.py first.\n")
-        logger.info("No watchlist entries found for today — exiting.")
+    runners   = get_todays_runners()
+
+    if not watchlist and not runners:
+        print("  No watchlist or runners for today. Run watchlist_scanner.py first.\n")
         sys.exit(0)
 
-    print(f"  Watchlist stocks to check: {len(watchlist)}\n")
+    print(f"  Watchlist stocks : {len(watchlist)}")
+    print(f"  Runner stocks    : {len(runners)}\n")
 
-    # Track results
-    new_breakouts = []
+    new_breakouts   = []
     already_alerted = []
-    no_trigger = []
+    no_trigger      = []
 
+    # \u2500\u2500 Watchlist \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
     for entry in watchlist:
         ticker = entry["ticker"]
-
-        # Skip if already logged today
         if not args.dry_run and breakout_already_logged_today(ticker):
             already_alerted.append(ticker)
             continue
-
         try:
             result = check_ticker_breakout(entry)
             if result:
+                result["_source"] = "watchlist"
                 new_breakouts.append(result)
                 print(
-                    f"  ✅ BREAKOUT: {ticker:<8} "
-                    f"${result['breakout_price']:.2f} | "
-                    f"Vol: {result['volume_ratio']:.1f}x | "
-                    f"+{result['_pct_above_pivot']:.1f}% above pivot | "
-                    f"{result['pattern_type']}/{result['pattern_grade']}"
+                    f"  \u2705 BREAKOUT [WL]: {ticker:<6} "
+                    f"${result['breakout_price']:.2f} | Vol {result['volume_ratio']:.1f}x | "
+                    f"+{result['_pct_above_pivot']:.1f}% | {result['pattern_type']}/{result['pattern_grade']}"
                 )
-
                 if not args.dry_run:
-                    row_id = insert_breakout_entry(
-                        {k: v for k, v in result.items() if not k.startswith("_")}
-                    )
+                    row_id = insert_breakout_entry({k: v for k, v in result.items() if not k.startswith("_")})
                     if row_id:
-                        logger.info(f"Wrote breakout for {ticker} (id={row_id})")
                         send_notification(ticker, {"breakout_price": result["breakout_price"],
                                                    "pivot_price": result["pivot_price"],
                                                    "volume_ratio": result["volume_ratio"],
-                                                   "pct_above_pivot": result["_pct_above_pivot"]},
-                                          result)
+                                                   "pct_above_pivot": result["_pct_above_pivot"]}, result)
             else:
                 no_trigger.append(ticker)
-
         except Exception as e:
-            logger.warning(f"Error checking {ticker}: {e}")
+            logger.warning(f"Error checking watchlist {ticker}: {e}")
             no_trigger.append(ticker)
 
-    # Summary
-    print(f"\n  {'─'*55}")
-    print(f"  Stocks checked       : {len(watchlist)}")
+    # \u2500\u2500 Runners \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    for entry in runners:
+        ticker = entry["ticker"]
+        if not args.dry_run and breakout_already_logged_today(ticker):
+            already_alerted.append(ticker)
+            continue
+        try:
+            result = check_runner_breakout(entry)
+            if result:
+                new_breakouts.append(result)
+                print(
+                    f"  \U0001f3c3 BREAKOUT [RN]: {ticker:<6} "
+                    f"${result['breakout_price']:.2f} | Vol {result['volume_ratio']:.1f}x | "
+                    f"+{result['_pct_above_pivot']:.1f}% | {result['pattern_type']}/{result['pattern_grade']} (runner)"
+                )
+                if not args.dry_run:
+                    row_id = insert_breakout_entry({k: v for k, v in result.items() if not k.startswith("_")})
+                    if row_id:
+                        send_notification(ticker, {"breakout_price": result["breakout_price"],
+                                                   "pivot_price": result["pivot_price"],
+                                                   "volume_ratio": result["volume_ratio"],
+                                                   "pct_above_pivot": result["_pct_above_pivot"]}, result)
+            else:
+                no_trigger.append(ticker)
+        except Exception as e:
+            logger.warning(f"Error checking runner {ticker}: {e}")
+            no_trigger.append(ticker)
+
+    total_checked = len(watchlist) + len(runners) - len(already_alerted)
+    print(f"\n  {'\u2500'*55}")
+    print(f"  Stocks checked       : {total_checked} ({len(watchlist)} watchlist + {len(runners)} runners)")
     print(f"  New breakouts        : {len(new_breakouts)}")
     print(f"  Already alerted today: {len(already_alerted)}")
     print(f"  No trigger yet       : {len(no_trigger)}")
     if already_alerted:
         print(f"  Previously alerted   : {', '.join(already_alerted)}")
-    if no_trigger:
-        print(f"  Still watching       : {', '.join(no_trigger)}")
     print()
 
     if args.dry_run:
