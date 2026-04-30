@@ -7,10 +7,10 @@
 ## What the Watchlist Is
 
 The watchlist is a list of stocks that are:
-- In a **strong uptrend** (prior explosive move of 30%+)
-- **Consolidating tightly** near their highs (base depth ≤ 15%)
-- **Volume drying up** during the consolidation
-- **Close to breaking out** (within 5% of the pivot price)
+- In a **strong uptrend** (momentum: 1M ≥ 5%, 3M ≥ 15%, 6M ≥ 30%)
+- **Consolidating tightly** near their highs (base depth ≤ 20%)
+- **Volume drying up** during the consolidation (quality signal — improves grade)
+- **Close to breaking out** (within 8% of the pivot price)
 
 These are stocks to **watch today**. They haven't broken out yet — they're set up and coiling.
 The breakout scanner monitors these throughout the day and alerts when one triggers.
@@ -57,12 +57,14 @@ python3 watchlist_scanner.py --ticker NVDA --dry-run
 
   SCAN SUMMARY
   ────────────────────────────────────────
-  Total tickers scanned : 516
-  Passed Stage 1 filter : 181    ← meet price/volume/ADR minimums
-  Passed Stage 2 (move) : 52     ← had a 30%+ explosive prior move
-  Passed Stage 3 (base) : 8      ← formed a tight base after the move
-  Passed Stage 4 (vol)  : 3      ← volume dried up inside the base
-  On watchlist today    : 2      ← within 5% of pivot — watch these
+  Total tickers scanned     : 2847
+  Data fetched              : 2610   ← tickers with sufficient history
+  Passed Stage 1 filter     : 540    ← meet price/volume/ADR minimums
+  Passed Stage 2 (momentum) : 98     ← up ≥5%/15%/30% over 1M/3M/6M
+  + also had prior move (2b): 41     ← bonus grading only
+  Passed Stage 3 (base)     : 22     ← formed a tight base after move
+  Had vol contraction (4)   : 11     ← bonus grading only
+  On watchlist today        : 7      ← within 8% of pivot — watch these
 
   ─────────────────────────────────────────────────────────────────────────────────────────
   Ticker   Grade  Price     Pivot    %Away  Pattern      Prior Move   Top Reason
@@ -203,17 +205,19 @@ You can also add a `.env` file in `scan/` to override without editing code.
 
 ### Tighten to Improve Quality (fewer but stronger setups)
 ```env
-MIN_PRIOR_MOVE_PCT=40       # was 30 — require bigger prior move
-MAX_BASE_DEPTH_PCT=10       # was 15 — require tighter base
-MAX_BASE_VOL_RATIO=0.45     # was 0.60 — require more volume contraction
+MIN_MOMENTUM_3M_PCT=25      # was 15 — require stronger 3M momentum
+MIN_MOMENTUM_6M_PCT=40      # was 30 — require stronger 6M momentum
+MAX_BASE_DEPTH_PCT=10       # was 20 — require tighter base
+MAX_BASE_VOL_RATIO=0.60     # was 0.85 — require more volume contraction
 MIN_CONSEC_LOW_VOL_DAYS=5   # was 3 — require longer vol dry-up
 ```
 
 ### Loosen to Increase Universe (more setups, lower average quality)
 ```env
-MIN_PRIOR_MOVE_PCT=20
-MAX_BASE_DEPTH_PCT=20
-MAX_DIST_FROM_PIVOT_PCT=8   # was 5 — catch stocks a bit further from pivot
+MIN_MOMENTUM_1M_PCT=2       # was 5
+MIN_MOMENTUM_3M_PCT=10      # was 15
+MAX_BASE_DEPTH_PCT=25       # was 20
+MAX_DIST_FROM_PIVOT_PCT=10  # was 8 — catch stocks further from pivot
 ```
 
 ### After 30+ Days of Data: Run Analysis
@@ -270,11 +274,12 @@ Single-ticker scans (`--ticker AAPL`) and `--dry-run` do **not** send Telegram n
 
 | Problem | Check |
 |---------|-------|
-| Watchlist is empty every day | Market may be in correction — fewer setups in downtrends. Check `Stage 2 (move)` count — if low, most stocks haven't had a prior explosive move recently. |
+| Watchlist is empty every day | Market may be in correction — fewer setups in downtrends. Check `Stage 2 (momentum)` count — if low, most stocks underperforming on 3M/6M timeframes. |
 | Scanner found 0 tickers | Run `--dry-run --ticker NVDA` to confirm data is fetching. |
 | "No module named X" error | Run `pip3 install --break-system-packages -r requirements.txt` |
 | Database write errors | Check `ai-agent` can reach the server: `python3 -c "from shared.db_writer import test_connection; print(test_connection())"` |
-| Wikipedia 403 error on ticker fetch | `get_ticker_universe()` falls back to the 150-ticker hardcoded list automatically. Check the log for `Falling back to hardcoded starter universe`. |
+| Ticker universe is tiny (fallback list) | `get_ticker_universe()` falls back to hardcoded ~150 tickers if yahoo_fin fails. Check logs for `Falling back to hardcoded starter universe`. |
+| "No module named yahoo_fin" | `pip3 install --break-system-packages yahoo-fin` |
 | Tickers showing as delisted | yfinance sometimes lags on symbol changes. These are caught and skipped automatically. |
 
 ---
@@ -292,5 +297,5 @@ tail -60 /home/ubuntu/.openclaw/workspace/stocks-repo/scan/logs/watchlist.log
 
 ---
 
-*Last updated: 2026-04-27 (added Telegram notifications)*
+*Last updated: 2026-04-30 (yahoo_fin ticker source, bulk fetch, parallel criteria eval)*
 *See also: `breakout-scanner-usage.md`, `watchlist-plan.md`*

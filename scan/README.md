@@ -116,17 +116,19 @@ scan/
 ```
 =================================================================
   DAILY WATCHLIST SCAN — 2026-04-28
-  Universe: 647 tickers | Dry run: False
+  Universe: 2847 tickers | Dry run: False
 =================================================================
 
   SCAN SUMMARY
   ────────────────────────────────────────
-  Total tickers scanned : 647
-  Passed Stage 1 filter : 312    ← price/volume/ADR filter
-  Passed Stage 2 (move) : 44     ← had a 30%+ explosive move
-  Passed Stage 3 (base) : 18     ← tight consolidation base
-  Passed Stage 4 (vol)  : 9      ← volume dried up in base
-  On watchlist today    : 6      ← within 5% of pivot
+  Total tickers scanned     : 2847
+  Data fetched              : 2610   ← tickers with sufficient history
+  Passed Stage 1 filter     : 540    ← price/volume/ADR filter
+  Passed Stage 2 (momentum) : 98     ← up ≥5%/15%/30% over 1M/3M/6M
+  + also had prior move (2b): 41     ← bonus grading only
+  Passed Stage 3 (base)     : 22     ← tight consolidation base
+  Had vol contraction (4)   : 11     ← bonus grading only
+  On watchlist today        : 7      ← within 8% of pivot
 
   ───────────────────────────────────────────────────────────────────────────────────────────────
   Ticker   Grade  Price     Pivot    %Away  Pattern      Prior Move   Top Reason
@@ -199,10 +201,11 @@ ORDER BY avg_10d DESC;
 ## Methodology
 
 Based on Kristjan Kullamägi (Qullamaggie) momentum breakout methodology:
-- **Stage 1** — Universe filter (price, volume, ADR%)
-- **Stage 2** — Prior explosive move (30%+ in 40 trading days)
-- **Stage 3** — Tight consolidation base (≤15% depth, 5–40 days)
-- **Stage 4** — Volume contraction (base avg vol ≤ 60% of 50-day avg)
+- **Stage 1** — Universe filter: price ≥ $5, avg vol ≥ 300k, ADR ≥ 3%
+- **Stage 2** — Momentum trend: 1M ≥ 5%, 3M ≥ 15%, 6M ≥ 30% — *never ages out*
+- **Stage 2b** — Prior explosive move (≥25% in 60d) — *bonus grading only, not a gate*
+- **Stage 3** — Tight consolidation base (≤20% depth, 5–40 days)
+- **Stage 4** — Volume contraction — *bonus grading only, not a gate*
 - **Stage 5** — Breakout confirmation (price + volume + candle strength)
 
 Full methodology: `qullamaggie/breakouts/Rules.MD`

@@ -64,8 +64,10 @@ a breakout** (within 2–5% of pivot):
 - $29/month starter tier covers this use case
 
 **Stock Universe Source**
-- Use `pandas_datareader` or a static CSV of S&P 500 + Russell 2000 tickers
-- Or pull from `finviz` via `finviz` Python library for pre-filtered screening
+- `yahoo_fin.stock_info.tickers_sp500()` — S&P 500 (~500 tickers)
+- `yahoo_fin.stock_info.tickers_nasdaq()` — all Nasdaq-listed stocks (~2,500+ after filtering)
+- Symbols pre-filtered by `_is_valid_ticker()` to strip warrants, rights, units
+- Replaces the previous Wikipedia scrape approach (was fragile — 403 errors, lxml dependency)
 
 ---
 
@@ -270,6 +272,7 @@ Use results to tighten or loosen individual criteria thresholds in `config.py`.
 ```bash
 # Core dependencies
 pip install yfinance                  # Stock data (free, no API key)
+pip install yahoo-fin                 # Ticker universe (S&P 500, Nasdaq)
 pip install pandas                    # Data manipulation
 pip install numpy                     # Numerical calculations
 pip install pyodbc                    # SQL Server connection
@@ -393,22 +396,16 @@ pip3 install --break-system-packages -r requirements.txt
 **Issue:** `pd.read_html()` requires `lxml` but it was not included in `requirements.txt`.
 The Wikipedia S&P 500 fetch silently fell back to the hardcoded 40-ticker list.
 
-**Resolution:** Added `lxml` to `requirements.txt` and installed it separately.
-```bash
-pip3 install --break-system-packages lxml
-```
+**Resolution (original):** Added `lxml` to `requirements.txt`.
+**Superseded (2026-04-30):** Wikipedia scraping replaced entirely with `yahoo_fin` —
+no lxml or requests dependency needed for ticker fetching. See Issue #13.
 
 ### 4. Wikipedia Returns HTTP 403 from Server IP
-**Issue:** After `lxml` was installed, `pd.read_html()` calls to Wikipedia returned
-`HTTP Error 403: Forbidden`. Wikipedia blocks requests with no User-Agent header,
-which is the default for pandas/urllib.
+**Issue:** `pd.read_html()` calls to Wikipedia returned `HTTP Error 403: Forbidden`.
+Wikipedia blocks requests with no User-Agent header.
 
-**Resolution:** Rewrote `get_ticker_universe()` in `data_fetcher.py` to use `requests`
-with a browser User-Agent header, then passed the HTML string to `pd.read_html()`:
-```python
-resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0 ..."})
-tables = pd.read_html(StringIO(resp.text), ...)
-```
+**Resolution (original):** Used `requests` with browser User-Agent.
+**Superseded (2026-04-30):** Wikipedia scraping replaced entirely with `yahoo_fin`. See Issue #13.
 
 ### 5. `ai-agent` SQL Login Lacks CREATE TABLE Permission
 **Issue:** The `ai-agent` SQL Server login has only `db_datareader` and `db_datawriter` roles.
@@ -438,7 +435,7 @@ clear pip cache: `pip3 cache purge` or clean apt: `sudo apt-get clean`.
 caused yfinance warnings: `possibly delisted; no timezone found`.
 
 **Resolution:** These are caught by the per-ticker `try/except` in `watchlist_scanner.py`
-and skipped silently. The Wikipedia-sourced universe avoids this by staying current.
+and skipped silently. The `yahoo_fin`-sourced universe avoids this by staying current.
 The fallback list was also updated with more current tickers.
 
 ---
@@ -539,7 +536,48 @@ most recent 52-week high date (capped so ≥5 days of base data exist).
 
 ---
 
-*Last updated: 2026-04-29*
+
+
+---
+
+### 13. Ticker Universe: Wikipedia → yahoo_fin (2026-04-30)
+
+**Problem:** `get_ticker_universe()` scraped S&P 500 and Nasdaq-100 from Wikipedia using
+`requests` + `pd.read_html()`. This was fragile (Issue #3 lxml, Issue #4 HTTP 403), returned
+only ~600 combined tickers, and only covered the Nasdaq-100 (not all Nasdaq stocks).
+
+**Resolution:** Replaced with `yahoo_fin.stock_info`:
+- `tickers_sp500()` — live S&P 500 list
+- `tickers_nasdaq()` — all Nasdaq-listed stocks (~3,000+ before filtering)
+
+Added `_is_valid_ticker()` pre-filter to strip warrants (`-W`, `-WS`), rights (`-R`, `-RT`),
+units (`-U`, `-UN`), and pure-numeric symbols before any network calls.
+
+`yahoo-fin>=0.8.9` added to `requirements.txt`.
+
+---
+
+### 14. Performance: Bulk Download + Parallel Criteria Eval (2026-04-30)
+
+**Problem:** With ~3,000 Nasdaq tickers, the sequential `fetch_history()` approach (one
+`yf.Ticker().history()` call per ticker) would take 45+ minutes per scan.
+
+**Resolution (two-part):**
+
+**Part 1 — `bulk_fetch_history()` in `shared/data_fetcher.py`:**
+Downloads 200 tickers per `yf.download()` call (`group_by='ticker'`, `threads=True`).
+~3,000 tickers → ~15 HTTP requests instead of ~3,000. This is the dominant speedup.
+
+**Part 2 — `ThreadPoolExecutor` in `watchlist_scanner.run_scan()`:**
+Once data is in memory, all stage criteria evaluation runs in parallel (16 workers).
+Pandas/numpy operations release the GIL so true parallelism is achieved.
+
+Expected total scan time: **~5 minutes** for full Nasdaq universe (vs ~45 min sequential).
+
+The scan summary now shows a `Data fetched` line (tickers that returned sufficient history)
+in addition to the total universe count.
+
+*Last updated: 2026-04-30*
 
 ---
 

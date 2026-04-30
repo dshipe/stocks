@@ -35,6 +35,15 @@ Three scanners run on AWS EC2 (Ubuntu 24.04) via cron:
 **Data source:** yfinance (free, no API key). Swap in Polygon.io by replacing
 `fetch_history()` / `fetch_intraday()` in `shared/data_fetcher.py` — rest of code is source-agnostic.
 
+**Ticker universe:** `yahoo_fin.stock_info` — `tickers_sp500()` + `tickers_nasdaq()` (combined ~3,000+
+tickers after dedup and junk-symbol filtering). Symbols are pre-filtered by `_is_valid_ticker()`
+to strip warrants (`-W`, `-WS`), rights (`-R`), and units (`-U`) before any network call.
+
+**Bulk data fetch:** `bulk_fetch_history()` in `shared/data_fetcher.py` downloads 200 tickers per
+`yf.download()` call (vs. one request per ticker). Criteria evaluation then runs in parallel via
+`ThreadPoolExecutor(max_workers=16)` in `watchlist_scanner.run_scan()`. Full Nasdaq scan takes
+~5 minutes instead of 45+
+
 **Database:** SQL Server on `ec2-35-172-202-150.compute-1.amazonaws.com`, DB `python`.
 Schema is in `scan/db_setup.sql` (idempotent — safe to re-run).
 Credentials in `scan/.env` (never in source).
@@ -43,10 +52,10 @@ Credentials in `scan/.env` (never in source).
 
 ```
 Stage 1   check_universe_filter()      price ≥ $5, vol ≥ 300k, ADR ≥ 3%
-Stage 2   check_momentum_trend()       1M ≥ 10%, 3M ≥ 20%, 6M ≥ 30%, near 52w high
+Stage 2   check_momentum_trend()       1M ≥ 5%, 3M ≥ 15%, 6M ≥ 30%, near 52w high  ← NEVER AGES OUT
 Stage 2b  find_prior_explosive_move()  ≥ 25% in 60d w/ vol surge — bonus grading only, NOT a gate
 Stage 3   find_consolidation_base()    5–40 days, depth ≤ 20%
-Stage 4   check_volume_contraction()   base vol ≤ 75% of 50d avg, ≥ 3 quiet days
+Stage 4   check_volume_contraction()   base vol ≤ 85% of 50d avg — bonus grading only, NOT a gate
 Trigger   0–8% below pivot             → write to watchlist_entries
 Stage 5   check_breakout()             price > pivot + vol ≥ 1.5x + strong candle (breakout scanner only)
 ```
@@ -56,10 +65,10 @@ Stage 5   check_breakout()             price > pivot + vol ≥ 1.5x + strong can
 **All thresholds live here.** Override via `scan/.env`. Never hardcode values in criteria.py.
 
 Key params:
-- `MIN_MOMENTUM_1M/3M/6M_PCT` — Stage 2 momentum thresholds (10% / 20% / 30%)
+- `MIN_MOMENTUM_1M/3M/6M_PCT` — Stage 2 momentum thresholds (5% / 15% / 30%)
 - `MAX_DIST_FROM_PIVOT_PCT` — watchlist trigger proximity (8%)
 - `MAX_BASE_DEPTH_PCT` — Stage 3 base tightness (20%)
-- `MAX_BASE_VOL_RATIO` — Stage 4 volume contraction (0.75)
+- `MAX_BASE_VOL_RATIO` — Stage 4 volume contraction (0.85) — grading signal only, not a gate
 
 ## Key Conventions
 
@@ -89,7 +98,7 @@ does not drop a stock. Do not revert this to a gate.
 ## Tech Debt
 
 - No market holiday calendar (`is_market_open()` uses weekday only)
-- yfinance 516-ticker scans are sequential — consider rate-limit sleep or batching
-- Ticker universe is S&P 500 + NDX only — misses mid/small-cap breakouts
 - No dedup constraint on `watchlist_entries(scan_date, ticker)`
 - No backtesting harness — criteria changes validated on current data only
+- `tickers_nasdaq()` from yahoo_fin returns all Nasdaq-listed stocks (~3,000+); no pre-screen
+  by market cap or price before the bulk download. Stage 1 drops most, but the download is wide.

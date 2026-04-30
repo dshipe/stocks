@@ -139,8 +139,10 @@ R43–R46  Market Filter        → S&P above MAs, low VIX, sector uptrend
 | 2026-04-29 | `MIN_MOMENTUM_3M_PCT` | 20% | **15%** | Recovers ~20 additional stocks with strong 6M trends but moderate 3M |
 | 2026-04-29 | `MAX_BASE_VOL_RATIO` | 0.75 | **0.85** | 13 stocks (KLAC, MRVL, BKR, JBL, FIX etc.) failing Stage 4 with ratios 0.76–0.85 |
 | 2026-04-29 | Stage 4 gate | Hard gate (drops stock) | **Bonus grading only** | 17/20 Stage 3 stocks dropped at vol contraction; consistent with Stage 2b philosophy — use quality signals for ranking, not exclusion |
+| 2026-04-30 | Ticker universe source | Wikipedia (S&P 500 + Nasdaq-100, ~600 tickers) | **yahoo_fin** (S&P 500 + full Nasdaq, ~3,000+ tickers) | Wikipedia scrape was fragile (403 errors, lxml dep); yahoo_fin is cleaner and covers far more stocks |
+| 2026-04-30 | Data fetch method | Sequential `fetch_history()` (1 request/ticker) | **`bulk_fetch_history()`** (200 tickers/request) + **ThreadPoolExecutor** criteria eval | Sequential scan of 3,000 tickers was ~45 min; bulk+parallel brings it to ~5 min |
 
 ---
 
 *Source: `qullamaggie/breakouts/Rules.MD`*
-*Last updated: 2026-04-29*
+*Last updated: 2026-04-30*
