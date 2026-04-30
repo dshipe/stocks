@@ -33,6 +33,7 @@ sudo ACCEPT_EULA=Y apt-get install -y msodbcsql17
 ```bash
 cd scan/
 pip install -r requirements.txt
+# Ubuntu 24.04: add --break-system-packages if not using a venv
 ```
 
 **Step 2 — Create database tables:**
@@ -59,9 +60,9 @@ All settings are in `config.py`. Override any value by creating a `.env` file in
 
 ```env
 # .env — optional overrides (do not commit to git)
-MIN_PRIOR_MOVE_PCT=40       # raise to tighten criteria
-MAX_BASE_DEPTH_PCT=10       # tighter bases only
-MIN_BREAKOUT_VOL_RATIO=2.0  # require stronger volume confirmation
+MIN_MOMENTUM_3M_PCT=25      # raise to tighten momentum gate (default 15)
+MAX_BASE_DEPTH_PCT=10       # tighter bases only (default 20)
+MIN_BREAKOUT_VOL_RATIO=2.0  # require stronger volume confirmation (default 1.5)
 ```
 
 ---
@@ -91,7 +92,7 @@ python performance_tracker.py --dry-run
 ```
 scan/
 ├── README.md                  ← This file
-├── requirements.txt           ← pip dependencies
+├── requirements.txt           ← pip dependencies (incl. yahoo-fin)
 ├── cron_setup.sh              ← Installs all cron jobs
 ├── db_setup.sql               ← Creates all 4 SQL Server tables
 ├── config.py                  ← All thresholds and DB settings
@@ -102,7 +103,7 @@ scan/
 │
 └── shared/
     ├── __init__.py
-    ├── data_fetcher.py        ← yfinance data + indicator computation
+    ├── data_fetcher.py        ← yahoo_fin universe + bulk yfinance fetch + indicators
     ├── criteria.py            ← Qullamaggie Stage 1–5 logic
     └── db_writer.py           ← All SQL Server read/write functions
 ```
