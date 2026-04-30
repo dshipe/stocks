@@ -97,6 +97,60 @@ def insert_watchlist_entry(data: dict) -> int | None:
         return None
 
 
+# ─── Runners ────────────────────────────────────────────────────────────────────────────
+
+def insert_runner_entry(data: dict) -> int | None:
+    """
+    Insert a row into runner_entries.
+
+    Expected keys in data:
+        scan_date, ticker, price_at_scan, pct_1m, pct_3m, pct_6m,
+        pct_from_52w_high, pct_from_20d_high, prior_move_pct,
+        prior_move_days, adr_pct, avg_daily_volume
+
+    Returns the new row's id or None on failure.
+    Silently skips if the same (scan_date, ticker) already exists.
+    """
+    sql = """
+        IF NOT EXISTS (
+            SELECT 1 FROM runner_entries
+            WHERE scan_date = ? AND ticker = ?
+        )
+        INSERT INTO runner_entries (
+            scan_date, ticker, price_at_scan, pct_1m, pct_3m, pct_6m,
+            pct_from_52w_high, pct_from_20d_high, prior_move_pct,
+            prior_move_days, adr_pct, avg_daily_volume
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        SELECT SCOPE_IDENTITY();
+    """
+    try:
+        conn   = get_connection()
+        cursor = conn.cursor()
+        sd     = data["scan_date"]
+        tk     = data["ticker"]
+        cursor.execute(sql,
+            sd, tk,
+            sd, tk,
+            data.get("price_at_scan"),
+            data.get("pct_1m"),
+            data.get("pct_3m"),
+            data.get("pct_6m"),
+            data.get("pct_from_52w_high"),
+            data.get("pct_from_20d_high"),
+            data.get("prior_move_pct", 0),
+            data.get("prior_move_days", 0),
+            data.get("adr_pct"),
+            data.get("avg_daily_volume"),
+        )
+        row    = cursor.fetchone()
+        conn.commit()
+        conn.close()
+        return int(row[0]) if row and row[0] else None
+    except Exception as e:
+        logger.error(f"insert_runner_entry({data.get('ticker')}): {e}")
+        return None
+
+
 def get_todays_watchlist() -> list[dict]:
     """
     Return all watchlist entries for today.

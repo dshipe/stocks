@@ -129,6 +129,43 @@ def send_watchlist_summary(scan_date: str, results: list, stats: dict) -> bool:
     return _send_chunked("\n".join(lines))
 
 
+
+
+# ─── Runners Summary ──────────────────────────────────────────────────────────────────────────────
+
+def send_runners_summary(scan_date: str, runners: list) -> bool:
+    """
+    Send a compact runners section to Telegram.
+
+    Called after send_watchlist_summary() on the same scan day.
+    Runners are stocks that passed Stage 1+2 but have not yet formed a base.
+    """
+    if not runners:
+        return True
+
+    lines = [f"\U0001f3c3 <b>Runners</b> \u2014 {scan_date}  "
+             f"(S1+S2 \u2705, no base yet \u2014 {len(runners)} stocks)\n"]
+
+    for r in sorted(runners, key=lambda x: -x.get("pct_3m", 0)):
+        ticker  = r.get("ticker", "?")
+        price   = r.get("price_at_scan", 0)
+        pct_1m  = r.get("pct_1m", 0)
+        pct_3m  = r.get("pct_3m", 0)
+        pct_6m  = r.get("pct_6m", 0)
+        h52w    = r.get("pct_from_52w_high", 0)
+        mv_pct  = r.get("prior_move_pct", 0)
+        mv_days = r.get("prior_move_days", 0)
+
+        move_str = f" | prior +{mv_pct:.0f}%/{mv_days}d" if mv_pct else ""
+        lines.append(
+            f"  <b>{ticker}</b> ${price:.2f}  "
+            f"1M:{pct_1m:+.0f}% 3M:{pct_3m:+.0f}% 6M:{pct_6m:+.0f}%  "
+            f"-{h52w:.1f}% from 52wH{move_str}\n"
+        )
+
+    lines.append("\n<i>These will appear on the watchlist once a base forms.</i>")
+    return _send_chunked("".join(lines))
+
 # ─── Breakout Alert ───────────────────────────────────────────────────────────
 
 def send_breakout_alert(breakout: dict) -> bool:

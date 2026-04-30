@@ -270,5 +270,37 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_breakout_performance_b
         ON breakout_performance (breakout_id);
 GO
 
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- runner_entries: Stage 1+2 passes that are still in markup (no base yet)
+-- ─────────────────────────────────────────────────────────────────────────────
+
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'runner_entries')
+BEGIN
+    CREATE TABLE runner_entries (
+        id                  INT IDENTITY(1,1) PRIMARY KEY,
+        scan_date           DATE          NOT NULL,
+        ticker              VARCHAR(10)   NOT NULL,
+        price_at_scan       DECIMAL(10,4),
+        pct_1m              DECIMAL(6,2),
+        pct_3m              DECIMAL(6,2),
+        pct_6m              DECIMAL(6,2),
+        pct_from_52w_high   DECIMAL(6,2),
+        pct_from_20d_high   DECIMAL(6,2),
+        prior_move_pct      DECIMAL(6,2),
+        prior_move_days     INT,
+        adr_pct             DECIMAL(5,2),
+        avg_daily_volume    INT,
+        created_at          DATETIME      DEFAULT GETDATE()
+    );
+    PRINT 'Created table: runner_entries';
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_runner_entries_scan_date_ticker')
+    CREATE UNIQUE INDEX IX_runner_entries_scan_date_ticker
+        ON runner_entries (scan_date, ticker);
+GO
+
 PRINT 'Schema setup complete.';
 GO

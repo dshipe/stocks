@@ -43,6 +43,7 @@ from shared.data_fetcher import (
 from shared.criteria import (
     check_universe_filter,
     check_momentum_trend,
+    check_runner_state,
     find_prior_explosive_move,
     find_consolidation_base,
     check_volume_contraction,
@@ -50,8 +51,8 @@ from shared.criteria import (
     grade_setup,
     build_qualification_reasons,
 )
-from shared.db_writer import insert_watchlist_entry, test_connection
-from shared.telegram_notify import send_watchlist_summary
+from shared.db_writer import insert_watchlist_entry, insert_runner_entry, test_connection
+from shared.telegram_notify import send_watchlist_summary, send_runners_summary
 
 # ─── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -190,7 +191,10 @@ def run_scan(tickers: list[str], dry_run: bool = False) -> tuple[list[dict], dic
     lock      = threading.Lock()
 
     def _eval(ticker: str) -> dict | None:
-        """Evaluate one ticker against all stages. Returns entry dict or None."""
+        """Evaluate one ticker against all stages. Returns entry dict or None.
+        
+        Returns a dict with key '_type' = 'watchlist' or 'runner'.
+        """
         df_raw = histories.get(ticker)
         if df_raw is None:
             return None
@@ -224,7 +228,27 @@ def run_scan(tickers: list[str], dry_run: bool = False) -> tuple[list[dict], dic
             # Stage 3
             base = find_consolidation_base(df, base_anchor)
             if base is None:
-                return None
+                # Not consolidating yet — check if it's a runner
+                runner = check_runner_state(df, universe, momentum)
+                if runner is None:
+                    return None
+                last        = df.iloc[-1]
+                avg_vol_20d = float(last["avg_vol_20d"]) if last["avg_vol_20d"] > 0 else 0
+                return {
+                    "_type":            "runner",
+                    "scan_date":        date.today(),
+                    "ticker":           ticker,
+                    "price_at_scan":    round(universe["current_price"], 4),
+                    "pct_1m":           runner["pct_1m"],
+                    "pct_3m":           runner["pct_3m"],
+                    "pct_6m":           runner["pct_6m"],
+                    "pct_from_52w_high":runner["pct_from_52w_high"],
+                    "pct_from_20d_high":runner["pct_from_20d_high"],
+                    "prior_move_pct":   prior_move["move_pct"] if prior_move else 0,
+                    "prior_move_days":  prior_move["move_days"] if prior_move else 0,
+                    "adr_pct":          round(universe["adr_pct"], 2),
+                    "avg_daily_volume": int(avg_vol_20d),
+                }
             with lock: counters["s3"] += 1
 
             # Stage 4: Volume contraction (bonus — not a gate)
@@ -252,6 +276,7 @@ def run_scan(tickers: list[str], dry_run: bool = False) -> tuple[list[dict], dic
             stop_price  = round(base["base_low"] * 0.995, 4)
 
             return {
+                "_type":                    "watchlist",
                 "scan_date":                date.today(),
                 "ticker":                   ticker,
                 "price_at_scan":            round(current_price, 4),
@@ -278,18 +303,25 @@ def run_scan(tickers: list[str], dry_run: bool = False) -> tuple[list[dict], dic
             logger.debug(f"Error scanning {ticker}: {e}")
             return None
 
-    done = 0
+    runners = []
+    done    = 0
     with ThreadPoolExecutor(max_workers=_EVAL_WORKERS) as executor:
         futures = {executor.submit(_eval, t): t for t in histories}
         for future in as_completed(futures):
             done += 1
             if done % 200 == 0:
-                logger.info(f"Criteria eval: {done}/{len(histories)} ({len(watchlist)} on watchlist)")
+                logger.info(
+                    f"Criteria eval: {done}/{len(histories)} "
+                    f"({len(watchlist)} on watchlist, {len(runners)} runners)"
+                )
             result = future.result()
             if result:
-                watchlist.append(result)
+                if result.get("_type") == "runner":
+                    runners.append(result)
+                else:
+                    watchlist.append(result)
 
-    return watchlist, {
+    return watchlist, runners, {
         "total":      total,
         "fetched":    len(histories),
         "passed_s1":  counters["s1"],
@@ -353,7 +385,7 @@ def main():
         tickers = get_ticker_universe()
 
     # Run scan
-    watchlist, stats = run_scan(tickers, dry_run=args.dry_run)
+    watchlist, runners, stats = run_scan(tickers, dry_run=args.dry_run)
 
     # Print summary
     print(f"\n  SCAN SUMMARY")
@@ -370,21 +402,49 @@ def main():
 
     print_watchlist(watchlist)
 
+    # Print runners
+    if runners:
+        runners_sorted = sorted(runners, key=lambda x: -x.get("pct_3m", 0))
+        print(f"\n  RUNNERS (Stage 1+2 \u2705 — no base yet, still marking up)")
+        print(f"  {'\u2500'*87}")
+        print(f"  {'Ticker':<8} {'Price':>9} {'1M':>7} {'3M':>7} {'6M':>7} {'52wH%':>6}  Prior Move")
+        print(f"  {'\u2500'*87}")
+        for r in runners_sorted:
+            mv = f"+{r['prior_move_pct']:.0f}%/{r['prior_move_days']}d" if r.get('prior_move_pct') else "—"
+            print(
+                f"  {r['ticker']:<8} ${r['price_at_scan']:>8.2f} "
+                f"{r['pct_1m']:>+6.1f}% {r['pct_3m']:>+6.1f}% {r['pct_6m']:>+6.1f}%  "
+                f"-{r['pct_from_52w_high']:>4.1f}%  {mv}"
+            )
+        print(f"  {'\u2500'*87}")
+        print(f"  {len(runners)} runners identified \u2014 monitor for base formation\n")
+    else:
+        print("  No runners today.\n")
+
     # Write to DB
-    if not args.dry_run and watchlist:
-        written = 0
-        for entry in watchlist:
-            db_entry = {k: v for k, v in entry.items() if not k.startswith("_")}
-            row_id = insert_watchlist_entry(db_entry)
-            if row_id:
-                written += 1
-            else:
-                logger.warning(f"Failed to write {entry['ticker']} to DB")
-        print(f"  Written to DB: {written}/{len(watchlist)} entries\n")
-    elif args.dry_run:
+    if not args.dry_run:
+        if watchlist:
+            written = 0
+            for entry in watchlist:
+                db_entry = {k: v for k, v in entry.items() if not k.startswith("_")}
+                row_id = insert_watchlist_entry(db_entry)
+                if row_id:
+                    written += 1
+                else:
+                    logger.warning(f"Failed to write {entry['ticker']} to DB")
+            print(f"  Written to DB: {written}/{len(watchlist)} watchlist entries")
+        if runners:
+            written_r = 0
+            for r in runners:
+                db_entry = {k: v for k, v in r.items() if not k.startswith("_")}
+                row_id = insert_runner_entry(db_entry)
+                if row_id:
+                    written_r += 1
+            print(f"  Written to DB: {written_r}/{len(runners)} runner entries\n")
+    else:
         print("  [DRY RUN] No data written to database.\n")
 
-    # Send Telegram notification (always, even on dry-run)
+    # Send Telegram notifications (always, even on dry-run)
     if not args.ticker:  # skip single-ticker test runs
         tg_stats = {
             "total":  stats["total"],
@@ -394,15 +454,22 @@ def main():
             "stage4": stats["passed_s4"],
         }
         from datetime import date as _date
+        scan_date_str = str(_date.today())
         sent = send_watchlist_summary(
-            scan_date=str(_date.today()),
+            scan_date=scan_date_str,
             results=watchlist,
             stats=tg_stats,
         )
         if sent:
-            logger.info("Telegram notification sent")
+            logger.info("Telegram watchlist notification sent")
         else:
-            logger.warning("Telegram notification failed")
+            logger.warning("Telegram watchlist notification failed")
+        if runners:
+            sent_r = send_runners_summary(scan_date=scan_date_str, runners=runners)
+            if sent_r:
+                logger.info("Telegram runners notification sent")
+            else:
+                logger.warning("Telegram runners notification failed")
 
 
 if __name__ == "__main__":

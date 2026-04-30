@@ -121,6 +121,54 @@ def check_momentum_trend(df: pd.DataFrame) -> dict | None:
     }
 
 
+
+
+# ─── Runner State Check ──────────────────────────────────────────────────────────────────
+
+def check_runner_state(
+    df: pd.DataFrame,
+    universe: dict,
+    momentum: dict,
+) -> dict | None:
+    """
+    Determine if a stock that passed Stage 1+2 but failed Stage 3 is in a
+    clean markup/runner phase worth monitoring.
+
+    A runner is a stock still in active uptrend that has not yet paused to
+    form a consolidation base.  Called only when find_consolidation_base()
+    returns None.
+
+    Returns runner detail dict, or None if the stock is not in markup phase.
+    """
+    last  = df.iloc[-1]
+    price = universe["current_price"]
+
+    # Must be in clean uptrend: price > MA20 > MA50
+    ma20 = float(last["ma20"]) if not pd.isna(last["ma20"]) else None
+    ma50 = float(last["ma50"]) if not pd.isna(last["ma50"]) else None
+    if ma20 is None or ma50 is None:
+        return None
+    if price < ma20:
+        return None   # price broke below 20d MA — not in clean markup
+    if ma20 < ma50:
+        return None   # 20d MA crossed below 50d MA — trend broken
+
+    # Must be near recent high — still trending, not hard-pulling-back
+    high_20d = float(df["High"].tail(20).max())
+    pct_from_20d_high = round(((high_20d - price) / high_20d * 100), 2) if high_20d > 0 else 0
+    if pct_from_20d_high > 15:
+        return None   # >15% off 20d high — pulling back too far, not a runner
+
+    return {
+        "pct_from_52w_high": momentum["pct_from_52w_high"],
+        "pct_from_20d_high": pct_from_20d_high,
+        "pct_1m":            momentum["pct_1m"],
+        "pct_3m":            momentum["pct_3m"],
+        "pct_6m":            momentum["pct_6m"],
+        "price_above_ma20":  True,
+        "ma20_above_ma50":   True,
+    }
+
 # ─── Stage 2b: Prior Explosive Move (bonus — not a gate) ──────────────────────
 # ─── Stage 2b: Prior Explosive Move (bonus grading only) ────────────────────────
 
