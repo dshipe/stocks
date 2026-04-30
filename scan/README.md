@@ -104,7 +104,7 @@ scan/
 └── shared/
     ├── __init__.py
     ├── data_fetcher.py        ← yahoo_fin universe + bulk yfinance fetch + indicators
-    ├── criteria.py            ← Qullamaggie Stage 1–5 logic
+    ├── criteria.py            ← Qullamaggie Stage 1–5 + runner state logic
     └── db_writer.py           ← All SQL Server read/write functions
 ```
 
@@ -166,6 +166,8 @@ scan/
 | `watchlist_performance` | Price outcomes 1d/5d/10d/20d/60d after watchlist date |
 | `breakout_entries` | One row per confirmed breakout |
 | `breakout_performance` | Price outcomes + stop hits + R multiples after breakout |
+| `runner_entries` | Stage 1+2 passes still in markup — no base yet |
+| `runner_performance` | Price outcomes + did_set_up + days_to_setup for runners |
 
 ---
 

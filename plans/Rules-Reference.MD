@@ -144,6 +144,9 @@ R43–R46  Market Filter        → S&P above MAs, low VIX, sector uptrend
 | 2026-04-30 | S&P 500 source | yahoo_fin (Wikipedia scrape, 403 on EC2) | yahoo_fin → GitHub CSV fallback (`datasets/s-and-p-500-companies`) | EC2 IP blocked by Wikipedia; GitHub raw serves CSV without auth |
 | 2026-04-30 | Telegram large watchlist | Single message (fails at 4096 chars) | `_send_chunked()` splits on blank lines into ≤4000-char parts | 53-stock watchlist caused 400 Bad Request from Telegram API |
 | 2026-04-30 | `bulk_fetch_history` single-ticker batch | `raw.copy()` (flat DF assumed) | `raw[ticker].copy()` always | yfinance ≥1.x returns MultiIndex even for 1-ticker batches; caused silent skip of SNDK, WDC, and any `--ticker` run |
+| 2026-04-30 | Stage 3 failure handling | Stock silently dropped | **Runners list** — `check_runner_state()` captures markup-phase stocks in `runner_entries` | SNDK, WDC pass S1+S2 but have no base; now tracked as runners until they consolidate |
+| 2026-04-30 | Runner performance | Not tracked | `runner_performance` table — 1d/5d/10d/20d/60d outcomes + `did_set_up` + `days_to_setup` | Mirrors watchlist_performance; enables analysis of how long runners take to set up |
+| 2026-04-30 | Breakout scanner scope | Watchlist only | **Watchlist + Runners** — `check_runner_breakout()` detects intraday base formation on runner stocks | Catches same-day runner→base→breakout transitions the 8 AM scan would miss |
 
 ---
 
