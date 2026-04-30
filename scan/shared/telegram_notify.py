@@ -18,11 +18,12 @@ TELEGRAM_BOT_TOKEN = os.getenv(
 )
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "8768764006")
 
-API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+API_URL   = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+MAX_CHARS = 4000   # Telegram hard limit is 4096 — leave headroom
 
 
 def _send(text: str) -> bool:
-    """Send a plain message to the configured Telegram chat."""
+    """Send a single message (must be ≤ MAX_CHARS) to the configured Telegram chat."""
     try:
         resp = requests.post(API_URL, json={
             "chat_id": TELEGRAM_CHAT_ID,
@@ -36,6 +37,42 @@ def _send(text: str) -> bool:
     except Exception as e:
         logger.error(f"Telegram send failed: {e}")
         return False
+
+
+def _send_chunked(text: str) -> bool:
+    """
+    Send text to Telegram, splitting into multiple messages if needed.
+
+    Splits on blank lines (natural stock-entry boundaries) so entries
+    are never cut mid-block.  Continues sending remaining chunks even
+    if one fails, and returns False if any chunk failed.
+    """
+    if len(text) <= MAX_CHARS:
+        return _send(text)
+
+    # Split on double-newlines (blank lines between stock entries)
+    paragraphs = text.split("\n\n")
+    chunks  = []
+    current = ""
+
+    for para in paragraphs:
+        candidate = (current + "\n\n" + para).lstrip("\n") if current else para
+        if len(candidate) > MAX_CHARS:
+            if current:
+                chunks.append(current.strip())
+            current = para
+        else:
+            current = candidate
+
+    if current.strip():
+        chunks.append(current.strip())
+
+    success = True
+    for i, chunk in enumerate(chunks, 1):
+        label = f"\n<i>(part {i}/{len(chunks)})</i>" if len(chunks) > 1 else ""
+        if not _send(chunk + label):
+            success = False
+    return success
 
 
 # ─── Watchlist Summary ────────────────────────────────────────────────────────
@@ -89,7 +126,7 @@ def send_watchlist_summary(scan_date: str, results: list, stats: dict) -> bool:
         f"S3:{stats.get('stage3',0)}  S4:{stats.get('stage4',0)}</i>"
     )
 
-    return _send("\n".join(lines))
+    return _send_chunked("\n".join(lines))
 
 
 # ─── Breakout Alert ───────────────────────────────────────────────────────────

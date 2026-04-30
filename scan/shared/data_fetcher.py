@@ -67,7 +67,7 @@ def get_ticker_universe() -> list[str]:
     """
     tickers = []
 
-    # S&P 500
+    # S&P 500 — try yahoo_fin first, fall back to GitHub-hosted CSV
     try:
         from yahoo_fin import stock_info as si
         sp500 = si.tickers_sp500()
@@ -75,7 +75,21 @@ def get_ticker_universe() -> list[str]:
         tickers.extend(sp500)
         logger.info(f"Loaded {len(sp500)} S&P 500 tickers from yahoo_fin")
     except Exception as e:
-        logger.warning(f"Could not fetch S&P 500 from yahoo_fin: {e}")
+        logger.warning(f"yahoo_fin S&P 500 failed ({e}), trying GitHub CSV fallback…")
+        try:
+            import requests
+            from io import StringIO
+            resp = requests.get(
+                "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv",
+                timeout=15,
+            )
+            resp.raise_for_status()
+            sp500_df = pd.read_csv(StringIO(resp.text))
+            sp500 = [t.replace(".", "-") for t in sp500_df["Symbol"].tolist()]
+            tickers.extend(sp500)
+            logger.info(f"Loaded {len(sp500)} S&P 500 tickers from GitHub CSV fallback")
+        except Exception as e2:
+            logger.warning(f"GitHub CSV S&P 500 fallback also failed: {e2}")
 
     # Nasdaq
     try:
