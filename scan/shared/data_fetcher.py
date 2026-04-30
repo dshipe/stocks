@@ -170,9 +170,10 @@ def bulk_fetch_history(tickers: list[str], days: int = 365) -> dict[str, pd.Data
 
             for ticker in batch:
                 try:
-                    # Single-ticker download returns a flat DataFrame; multi-ticker
-                    # uses a (ticker, field) MultiIndex — access with raw[ticker].
-                    df = raw.copy() if len(batch) == 1 else raw[ticker].copy()
+                    # yfinance always returns a (ticker, field) MultiIndex when
+                    # group_by='ticker' is set, even for single-ticker batches.
+                    # Always access via raw[ticker] to get a flat OHLCV DataFrame.
+                    df = raw[ticker].copy()
                     df = df[["Open", "High", "Low", "Close", "Volume"]]
                     df = df.dropna(subset=["Close"])
                     df.index = pd.to_datetime(df.index).tz_localize(None)
