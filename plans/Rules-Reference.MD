@@ -141,6 +141,8 @@ R43–R46  Market Filter        → S&P above MAs, low VIX, sector uptrend
 | 2026-04-29 | Stage 4 gate | Hard gate (drops stock) | **Bonus grading only** | 17/20 Stage 3 stocks dropped at vol contraction; consistent with Stage 2b philosophy — use quality signals for ranking, not exclusion |
 | 2026-04-30 | Ticker universe source | Wikipedia (S&P 500 + Nasdaq-100, ~600 tickers) | **yahoo_fin** (S&P 500 + full Nasdaq, ~3,000+ tickers) | Wikipedia scrape was fragile (403 errors, lxml dep); yahoo_fin is cleaner and covers far more stocks |
 | 2026-04-30 | Data fetch method | Sequential `fetch_history()` (1 request/ticker) | **`bulk_fetch_history()`** (200 tickers/request) + **ThreadPoolExecutor** criteria eval | Sequential scan of 3,000 tickers was ~45 min; bulk+parallel brings it to ~5 min |
+| 2026-04-30 | S&P 500 source | yahoo_fin (Wikipedia scrape, 403 on EC2) | yahoo_fin → GitHub CSV fallback (`datasets/s-and-p-500-companies`) | EC2 IP blocked by Wikipedia; GitHub raw serves CSV without auth |
+| 2026-04-30 | Telegram large watchlist | Single message (fails at 4096 chars) | `_send_chunked()` splits on blank lines into ≤4000-char parts | 53-stock watchlist caused 400 Bad Request from Telegram API |
 
 ---
 

@@ -577,7 +577,40 @@ Expected total scan time: **~5 minutes** for full Nasdaq universe (vs ~45 min se
 The scan summary now shows a `Data fetched` line (tickers that returned sufficient history)
 in addition to the total universe count.
 
-*Last updated: 2026-04-30*
+
+---
+
+### 15. S&P 500 HTTP 403 from yahoo_fin (2026-04-30)
+
+**Problem:** `yahoo_fin.tickers_sp500()` internally scrapes Wikipedia, which blocks requests
+from EC2 server IPs with HTTP 403. S&P 500 tickers were silently skipped, leaving the
+universe as Nasdaq-only and missing all NYSE-listed S&P 500 stocks (JPM, GS, XOM, etc.).
+
+**Resolution:** Added a second fallback in `get_ticker_universe()`:
+```python
+# If yahoo_fin 403s, fetch from GitHub-hosted CSV
+requests.get(
+    "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv"
+)
+```
+The `datasets/s-and-p-500-companies` GitHub repo is community-maintained, updated within
+days of any index change, and served directly from raw.githubusercontent.com with no
+auth or rate limits. Returns 503 current constituents.
+
+---
+
+### 16. Telegram 4096-char Limit on Large Watchlists (2026-04-30)
+
+**Problem:** With 53 stocks on the watchlist (3 lines per stock), the formatted message
+exceeded Telegram's 4096-character hard limit. The API returned 400 Bad Request and the
+notification was silently dropped.
+
+**Resolution:** Added `_send_chunked()` to `shared/telegram_notify.py`. It splits the
+message on blank lines (natural stock-entry boundaries) into ≤4000-char chunks and sends
+each as a separate message. Each chunk is labelled `(part N/M)` when multiple are needed.
+`send_watchlist_summary()` now uses `_send_chunked()` instead of `_send()`.
+
+*Last updated: 2026-04-30 (Issues #15, #16)*
 
 ---
 

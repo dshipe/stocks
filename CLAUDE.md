@@ -35,9 +35,11 @@ Three scanners run on AWS EC2 (Ubuntu 24.04) via cron:
 **Data source:** yfinance (free, no API key). Swap in Polygon.io by replacing
 `fetch_history()` / `fetch_intraday()` in `shared/data_fetcher.py` — rest of code is source-agnostic.
 
-**Ticker universe:** `yahoo_fin.stock_info` — `tickers_sp500()` + `tickers_nasdaq()` (combined ~3,000+
+**Ticker universe:** `yahoo_fin.stock_info` — `tickers_sp500()` + `tickers_nasdaq()` (combined ~3,500+
 tickers after dedup and junk-symbol filtering). Symbols are pre-filtered by `_is_valid_ticker()`
 to strip warrants (`-W`, `-WS`), rights (`-R`), and units (`-U`) before any network call.
+If `tickers_sp500()` returns HTTP 403, falls back to a GitHub-hosted S&P 500 CSV
+(`datasets/s-and-p-500-companies`) via `requests`.
 
 **Bulk data fetch:** `bulk_fetch_history()` in `shared/data_fetcher.py` downloads 200 tickers per
 `yf.download()` call (vs. one request per ticker). Criteria evaluation then runs in parallel via
@@ -100,5 +102,6 @@ does not drop a stock. Do not revert this to a gate.
 - No market holiday calendar (`is_market_open()` uses weekday only)
 - No dedup constraint on `watchlist_entries(scan_date, ticker)`
 - No backtesting harness — criteria changes validated on current data only
-- `tickers_nasdaq()` from yahoo_fin returns all Nasdaq-listed stocks (~3,000+); no pre-screen
+- `tickers_nasdaq()` from yahoo_fin returns all Nasdaq-listed stocks (~5,000+); no pre-screen
   by market cap or price before the bulk download. Stage 1 drops most, but the download is wide.
+- Telegram `send_watchlist_summary()` splits into multi-part messages when watchlist > ~30 stocks.
