@@ -610,7 +610,30 @@ message on blank lines (natural stock-entry boundaries) into ≤4000-char chunks
 each as a separate message. Each chunk is labelled `(part N/M)` when multiple are needed.
 `send_watchlist_summary()` now uses `_send_chunked()` instead of `_send()`.
 
-*Last updated: 2026-04-30 (Issues #15, #16)*
+
+---
+
+### 17. bulk_fetch_history Single-Ticker MultiIndex Bug (2026-04-30)
+
+**Problem:** yfinance ≥1.x returns a `(ticker, field)` MultiIndex for **all** downloads
+when `group_by='ticker'` is set — including single-ticker batches. The old code had:
+```python
+df = raw.copy() if len(batch) == 1 else raw[ticker].copy()
+```
+When `len(batch) == 1`, `raw.copy()` kept the MultiIndex intact and the subsequent
+`df[["Open", "High", "Low", "Close", "Volume"]]` raised a `KeyError` (columns are tuples
+like `("SNDK", "Open")`, not plain strings). The `except` block silently skipped the ticker.
+
+**Impact:** Any ticker scanned via `--ticker` flag, plus any ticker that landed as the
+sole member of the last batch, returned no data. SNDK and WDC were invisible to the scanner
+despite passing Stage 1 + Stage 2 criteria.
+
+**Resolution:** Removed the single-ticker special case — always use `raw[ticker]`:
+```python
+df = raw[ticker].copy()
+```
+
+*Last updated: 2026-04-30 (Issues #15, #16, #17)*
 
 ---
 

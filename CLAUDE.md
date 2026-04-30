@@ -105,3 +105,5 @@ does not drop a stock. Do not revert this to a gate.
 - `tickers_nasdaq()` from yahoo_fin returns all Nasdaq-listed stocks (~5,000+); no pre-screen
   by market cap or price before the bulk download. Stage 1 drops most, but the download is wide.
 - Telegram `send_watchlist_summary()` splits into multi-part messages when watchlist > ~30 stocks.
+- **yfinance ≥1.x**: `yf.download()` always returns `(ticker, field)` MultiIndex — always access
+  per-ticker data with `raw[ticker]`, never `raw.copy()` on single-ticker batches.
