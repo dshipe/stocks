@@ -112,16 +112,17 @@ def insert_runner_entry(data: dict) -> int | None:
     Silently skips if the same (scan_date, ticker) already exists.
     """
     sql = """
-        IF NOT EXISTS (
-            SELECT 1 FROM runner_entries
-            WHERE scan_date = ? AND ticker = ?
-        )
         INSERT INTO runner_entries (
             scan_date, ticker, price_at_scan, pct_1m, pct_3m, pct_6m,
             pct_from_52w_high, pct_from_20d_high, prior_move_pct,
             prior_move_days, adr_pct, avg_daily_volume
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-        SELECT SCOPE_IDENTITY();
+        )
+        OUTPUT INSERTED.id
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        WHERE NOT EXISTS (
+            SELECT 1 FROM runner_entries
+            WHERE scan_date = ? AND ticker = ?
+        );
     """
     try:
         conn   = get_connection()
@@ -129,7 +130,6 @@ def insert_runner_entry(data: dict) -> int | None:
         sd     = data["scan_date"]
         tk     = data["ticker"]
         cursor.execute(sql,
-            sd, tk,
             sd, tk,
             data.get("price_at_scan"),
             data.get("pct_1m"),
@@ -141,6 +141,7 @@ def insert_runner_entry(data: dict) -> int | None:
             data.get("prior_move_days", 0),
             data.get("adr_pct"),
             data.get("avg_daily_volume"),
+            sd, tk,
         )
         row    = cursor.fetchone()
         conn.commit()
