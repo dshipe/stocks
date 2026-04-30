@@ -16,6 +16,9 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 
+# ─── Constants ────────────────────────────────────────────────────────────────
+BULK_BATCH_SIZE = 200   # tickers per yf.download() call
+
 try:
     import pytz
     HAS_PYTZ = True
@@ -26,6 +29,34 @@ logger = logging.getLogger(__name__)
 
 
 # ─── Ticker Universe ───────────────────────────────────────────────────────────
+
+# Hyphen-suffixed warrant/right/unit patterns common in Nasdaq listings
+_JUNK_SUFFIXES = ("-W", "-WS", "-WD", "-WT", "-R", "-RT", "-U", "-UN", "-RI")
+
+
+def _is_valid_ticker(ticker: str) -> bool:
+    """
+    Return False for obvious non-common-stock symbols:
+      - warrants  (e.g. ACHRW, JOBY-WS)
+      - rights    (e.g. XYZ-R)
+      - units     (e.g. ABC-U)
+      - pure-digit or empty symbols
+    """
+    t = ticker.upper()
+    if not t or len(t) > 5:
+        return False
+    # Hyphen-suffix junk
+    for suffix in _JUNK_SUFFIXES:
+        if t.endswith(suffix):
+            return False
+    # 5-char Nasdaq warrants: all-alpha base + trailing W (e.g. ACHRW, NUVBW)
+    if len(t) == 5 and t.endswith("W") and t[:4].isalpha():
+        return False
+    # Tickers that are purely numeric or contain no letters
+    if not any(c.isalpha() for c in t):
+        return False
+    return True
+
 
 def get_ticker_universe() -> list[str]:
     """
@@ -56,8 +87,8 @@ def get_ticker_universe() -> list[str]:
     except Exception as e:
         logger.warning(f"Could not fetch Nasdaq tickers from yahoo_fin: {e}")
 
-    # Deduplicate, remove blank/bad entries
-    tickers = sorted(set(t for t in tickers if t and isinstance(t, str) and len(t) <= 5))
+    # Deduplicate + filter out warrants, rights, units, blank/bad symbols
+    tickers = sorted(set(t for t in tickers if _is_valid_ticker(t)))
 
     if not tickers:
         logger.warning("Falling back to hardcoded starter universe (500 tickers)")
@@ -88,6 +119,60 @@ def get_ticker_universe() -> list[str]:
 
 
 # ─── Historical Data ───────────────────────────────────────────────────────────
+
+def bulk_fetch_history(tickers: list[str], days: int = 365) -> dict[str, pd.DataFrame]:
+    """
+    Batch-download daily OHLCV history for a large list of tickers via yfinance.
+
+    Downloads in chunks of BULK_BATCH_SIZE (default 200) so that one HTTP
+    request covers hundreds of tickers.  Much faster than calling
+    fetch_history() individually for large universes.
+
+    Returns dict of {ticker: DataFrame} for tickers with sufficient data (≥20 rows).
+    Tickers with no data or errors are silently skipped.
+    """
+    end       = datetime.today()
+    start     = end - timedelta(days=days + 30)   # buffer for indicator warm-up
+    start_str = start.strftime("%Y-%m-%d")
+    end_str   = end.strftime("%Y-%m-%d")
+
+    results = {}
+    batches = [tickers[i : i + BULK_BATCH_SIZE] for i in range(0, len(tickers), BULK_BATCH_SIZE)]
+
+    for batch_num, batch in enumerate(batches, 1):
+        logger.info(f"Downloading batch {batch_num}/{len(batches)} ({len(batch)} tickers)…")
+        try:
+            raw = yf.download(
+                batch,
+                start=start_str,
+                end=end_str,
+                group_by="ticker",
+                auto_adjust=True,
+                threads=True,
+                progress=False,
+            )
+            if raw is None or raw.empty:
+                continue
+
+            for ticker in batch:
+                try:
+                    # Single-ticker download returns a flat DataFrame; multi-ticker
+                    # uses a (ticker, field) MultiIndex — access with raw[ticker].
+                    df = raw.copy() if len(batch) == 1 else raw[ticker].copy()
+                    df = df[["Open", "High", "Low", "Close", "Volume"]]
+                    df = df.dropna(subset=["Close"])
+                    df.index = pd.to_datetime(df.index).tz_localize(None)
+                    if len(df) >= 20:
+                        results[ticker] = df
+                except (KeyError, Exception):
+                    pass   # ticker had no data in this batch
+
+        except Exception as e:
+            logger.warning(f"Batch {batch_num} download failed: {e}")
+
+    logger.info(f"bulk_fetch_history: got data for {len(results)}/{len(tickers)} tickers")
+    return results
+
 
 def fetch_history(ticker: str, days: int = 365) -> pd.DataFrame | None:
     """

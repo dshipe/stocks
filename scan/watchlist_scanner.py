@@ -29,12 +29,15 @@ sys.path.insert(0, os.path.dirname(__file__))
 import argparse
 import json
 import logging
-from datetime import date, datetime
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import date, datetime, timedelta
 
 import config as cfg
 from shared.data_fetcher import (
     get_ticker_universe,
     fetch_history,
+    bulk_fetch_history,
     compute_indicators,
 )
 from shared.criteria import (
@@ -161,73 +164,82 @@ def scan_ticker(ticker: str) -> dict | None:
     }
 
 
-def run_scan(tickers: list[str], dry_run: bool = False) -> list[dict]:
+# Number of parallel workers for criteria evaluation (CPU-light, pandas-heavy).
+_EVAL_WORKERS = 16
+
+
+def run_scan(tickers: list[str], dry_run: bool = False) -> tuple[list[dict], dict]:
     """Scan all tickers and return the watchlist."""
-    watchlist   = []
-    total       = len(tickers)
-    passed_s1   = passed_s2 = passed_s2b = passed_s3 = passed_s4 = 0
-    errors      = 0
+    total = len(tickers)
 
     print(f"\n{'='*65}")
     print(f"  DAILY WATCHLIST SCAN — {date.today()}")
     print(f"  Universe: {total} tickers | Dry run: {dry_run}")
     print(f"{'='*65}\n")
 
-    for i, ticker in enumerate(tickers, 1):
-        if i % 50 == 0 or i == 1:
-            logger.info(f"Progress: {i}/{total} ({watchlist.__len__()} on watchlist so far)")
+    # ── Step 1: Bulk-fetch all historical data ─────────────────────────────────────
+    t0 = datetime.now()
+    logger.info(f"Bulk-fetching historical data for {total} tickers…")
+    histories = bulk_fetch_history(tickers, days=365)
+    elapsed = (datetime.now() - t0).total_seconds()
+    logger.info(f"Data fetch done: {len(histories)}/{total} tickers in {elapsed:.1f}s")
 
+    # ── Step 2: Parallel criteria evaluation ─────────────────────────────────────
+    watchlist = []
+    counters  = {"s1": 0, "s2": 0, "s2b": 0, "s3": 0, "s4": 0, "errors": 0}
+    lock      = threading.Lock()
+
+    def _eval(ticker: str) -> dict | None:
+        """Evaluate one ticker against all stages. Returns entry dict or None."""
+        df_raw = histories.get(ticker)
+        if df_raw is None:
+            return None
         try:
-            df = fetch_history(ticker, days=365)
-            if df is None:
-                continue
-            df = compute_indicators(df)
+            df = compute_indicators(df_raw)
 
             # Stage 1
             universe = check_universe_filter(df, ticker)
             if universe is None:
-                continue
-            passed_s1 += 1
+                return None
+            with lock: counters["s1"] += 1
 
             # Stage 2: Momentum trend
             momentum = check_momentum_trend(df)
             if momentum is None:
-                continue
-            passed_s2 += 1
+                return None
+            with lock: counters["s2"] += 1
 
             # Stage 2b: Prior explosive move (bonus — not a gate)
             prior_move = find_prior_explosive_move(df)
             if prior_move:
-                passed_s2b += 1
+                with lock: counters["s2b"] += 1
                 base_anchor = prior_move["peak_date"]
             else:
-                import pandas as _pd
                 high_idx    = df["High"].tail(252).idxmax()
                 base_anchor = high_idx.date()
-                from datetime import date as _date, timedelta as _td
-                cap = (_date.today() - _td(days=cfg.MIN_BASE_DAYS + 2))
+                cap = date.today() - timedelta(days=cfg.MIN_BASE_DAYS + 2)
                 if base_anchor > cap:
-                    base_anchor = (_date.today() - _td(days=cfg.MAX_BASE_DAYS))
+                    base_anchor = date.today() - timedelta(days=cfg.MAX_BASE_DAYS)
 
             # Stage 3
             base = find_consolidation_base(df, base_anchor)
             if base is None:
-                continue
-            passed_s3 += 1
+                return None
+            with lock: counters["s3"] += 1
 
             # Stage 4: Volume contraction (bonus — not a gate)
             vol_contraction = check_volume_contraction(df, base["base_start_date"])
             if vol_contraction:
-                passed_s4 += 1  # how many had clean vol contraction
+                with lock: counters["s4"] += 1
 
             # Proximity to pivot
             current_price  = universe["current_price"]
             pivot_price    = base["pivot_price"]
             if pivot_price <= 0:
-                continue
+                return None
             pct_from_pivot = ((pivot_price - current_price) / pivot_price) * 100
             if pct_from_pivot < 0 or pct_from_pivot > cfg.MAX_DIST_FROM_PIVOT_PCT:
-                continue
+                return None
 
             pattern_type = detect_pattern_type(df, base)
             grade        = grade_setup(prior_move, base, vol_contraction, pattern_type, momentum)
@@ -239,7 +251,7 @@ def run_scan(tickers: list[str], dry_run: bool = False) -> list[dict]:
             avg_vol_20d = float(last["avg_vol_20d"]) if last["avg_vol_20d"] > 0 else 0
             stop_price  = round(base["base_low"] * 0.995, 4)
 
-            entry = {
+            return {
                 "scan_date":                date.today(),
                 "ticker":                   ticker,
                 "price_at_scan":            round(current_price, 4),
@@ -261,16 +273,32 @@ def run_scan(tickers: list[str], dry_run: bool = False) -> list[dict]:
                 "pattern_grade":            grade,
                 "_stop_price":              stop_price,
             }
-            watchlist.append(entry)
-
         except Exception as e:
-            errors += 1
+            with lock: counters["errors"] += 1
             logger.debug(f"Error scanning {ticker}: {e}")
+            return None
+
+    done = 0
+    with ThreadPoolExecutor(max_workers=_EVAL_WORKERS) as executor:
+        futures = {executor.submit(_eval, t): t for t in histories}
+        for future in as_completed(futures):
+            done += 1
+            if done % 200 == 0:
+                logger.info(f"Criteria eval: {done}/{len(histories)} ({len(watchlist)} on watchlist)")
+            result = future.result()
+            if result:
+                watchlist.append(result)
 
     return watchlist, {
-        "total": total, "passed_s1": passed_s1, "passed_s2": passed_s2,
-        "passed_s2b": passed_s2b, "passed_s3": passed_s3, "passed_s4": passed_s4,
-        "watchlist": len(watchlist), "errors": errors,
+        "total":      total,
+        "fetched":    len(histories),
+        "passed_s1":  counters["s1"],
+        "passed_s2":  counters["s2"],
+        "passed_s2b": counters["s2b"],
+        "passed_s3":  counters["s3"],
+        "passed_s4":  counters["s4"],
+        "watchlist":  len(watchlist),
+        "errors":     counters["errors"],
     }
 
 
@@ -331,6 +359,7 @@ def main():
     print(f"\n  SCAN SUMMARY")
     print(f"  {'─'*40}")
     print(f"  Total tickers scanned : {stats['total']}")
+    print(f"  Data fetched          : {stats.get('fetched', stats['total'])}")
     print(f"  Passed Stage 1 filter : {stats['passed_s1']}")
     print(f"  Passed Stage 2 (momentum) : {stats['passed_s2']}")
     print(f"  + also had prior move (2b): {stats['passed_s2b']}")
