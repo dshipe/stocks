@@ -2,6 +2,7 @@
 scan/.env
 .env
 *.env
+scan/schwab/schwab_token.json
 
 # Python
 __pycache__/
