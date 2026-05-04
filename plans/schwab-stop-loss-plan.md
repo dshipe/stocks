@@ -32,12 +32,13 @@ is replaced with the updated SMA price. If no stop exists, one is created.
 
 ## Schwab API Overview
 
-Schwab uses OAuth2 with PKCE. The `schwab-py` library handles token management
-and provides clean wrappers around the Trader API endpoints.
+Token is fetched from Lambda API endpoint. The `schwab-py` library provides
+clean wrappers around the Trader API endpoints.
 
 ### Authentication Flow
-- First run: opens browser for OAuth2 login, saves token to `schwab_token.json`
-- Subsequent runs: auto-refreshes token from file (no browser needed)
+- Fetch token from Lambda endpoint: `https://hcapr4ndhwksq5dq7ird3yujpq0edbbt.lambda-url.us-east-1.on.aws/api/token/schwab?pw=6%2310oz`
+- Token is cached to `schwab_token.json` for subsequent runs (5-minute TTL recommended)
+- Query the endpoint periodically to refresh the token
 - Token file: `scan/schwab_token.json` (excluded from git via `.gitignore`)
 
 ### Key Endpoints Used
@@ -69,11 +70,47 @@ Runs as a standalone script — no SQL Server dependency, no new tables needed.
 ### `schwab_stop_loss.py`
 
 ```python
-# 1. Auth
-client = schwab.auth.client_from_token_file(
-    token_path="schwab_token.json",
-    api_key=SCHWAB_APP_KEY,
-    app_secret=SCHWAB_SECRET,
+# 1. Auth — Fetch token from Lambda API
+import requests
+import json
+from datetime import datetime, timedelta
+
+TOKEN_ENDPOINT = "https://hcapr4ndhwksq5dq7ird3yujpq0edbbt.lambda-url.us-east-1.on.aws/api/token/schwab"
+TOKEN_PASSWORD = "6#10oz"
+TOKEN_FILE = "schwab/schwab_token.json"
+
+def get_or_refresh_token():
+    """Fetch token from Lambda API, or use cached token if still valid."""
+    # Check if cached token exists and is fresh (< 5 min old)
+    if os.path.exists(TOKEN_FILE):
+        with open(TOKEN_FILE, 'r') as f:
+            cached = json.load(f)
+        if datetime.now() - datetime.fromisoformat(cached['fetched_at']) < timedelta(minutes=5):
+            return cached['token']
+    
+    # Fetch new token from Lambda
+    params = {'pw': TOKEN_PASSWORD}
+    resp = requests.get(TOKEN_ENDPOINT, params=params, timeout=10)
+    resp.raise_for_status()
+    data = resp.json()
+    
+    # Cache token with timestamp
+    token_data = {
+        'token': data['access_token'],
+        'fetched_at': datetime.now().isoformat()
+    }
+    os.makedirs('schwab', exist_ok=True)
+    with open(TOKEN_FILE, 'w') as f:
+        json.dump(token_data, f)
+    
+    return data['access_token']
+
+# Fetch token
+access_token = get_or_refresh_token()
+
+# Create schwab client with token
+client = schwab.auth.client_from_token_dict(
+    token_dict={'access_token': access_token, 'token_type': 'Bearer'},
 )
 
 # 2. Get positions
@@ -214,35 +251,33 @@ tail -50 /home/ubuntu/.openclaw/workspace/stocks-repo/scan/logs/schwab_stop_loss
 
 ## First-Run Authentication
 
-Schwab OAuth2 is a two-step process for headless servers:
+No manual OAuth2 flow needed. The script automatically fetches the token from the Lambda API.
 
-**Step 1 — Get the login URL:**
+**First run:**
 ```bash
 cd scan
-python3 schwab/schwab_stop_loss.py --get-auth-url
-# Prints a URL — open it in your browser, log in, approve access
+python3 schwab/schwab_stop_loss.py --dry-run
+# Token automatically fetched from Lambda, cached to schwab/schwab_token.json
 ```
 
-**Step 2 — Complete the auth (run immediately after browser redirect):**
-The script uses `schwab.auth.client_from_manual_flow()` via PTY:
-```bash
-python3 -c "
-import schwab.auth
-client = schwab.auth.client_from_manual_flow(
-    api_key='YOUR_KEY', app_secret='YOUR_SECRET',
-    callback_url='https://127.0.0.1',
-    token_path='schwab/schwab_token.json')
-"
-# Paste the full redirect URL when prompted
-# Token saved to schwab/schwab_token.json (gitignored)
-```
-
-All future runs (including cron) use the saved token — auto-refreshed by schwab-py.
+Subsequent runs reuse the cached token (refreshed every 5 minutes).
 
 Normal run / dry run:
 ```bash
 python3 schwab/schwab_stop_loss.py --dry-run   # preview, no orders placed
 python3 schwab/schwab_stop_loss.py             # live
+```
+
+**Token endpoint:**
+```
+GET https://hcapr4ndhwksq5dq7ird3yujpq0edbbt.lambda-url.us-east-1.on.aws/api/token/schwab?pw=6%2310oz
+
+Response:
+{
+  "access_token": "<token_string>",
+  "token_type": "Bearer",
+  "expires_in": 1800
+}
 ```
 
 ---
@@ -301,6 +336,7 @@ python3 schwab/schwab_stop_loss.py             # live
 | 2026-05-04 | Account hash fetched via `get_account_numbers()` (not in positions response). |
 | 2026-05-04 | 65s sleep between order placements to handle Schwab dev API rate limit. |
 | 2026-05-04 | Cron installed: 8:15 AM EDT (12:15 UTC) weekdays. |
+| 2026-05-04 | **[TOKEN BRANCH]** Switched to Lambda API token endpoint. No browser OAuth2 needed. Token cached locally (5-min TTL). |
 
 ---
 
