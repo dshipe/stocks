@@ -21,6 +21,7 @@ Usage:
 import argparse
 import os
 import sys
+import time
 
 # ── Ensure scan/ is on path for config + .env ──────────────────────────────
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -39,7 +40,7 @@ from schwab.orders.generic import OrderBuilder
 # ── Config ─────────────────────────────────────────────────────────────────
 APP_KEY      = os.getenv("SCHWAB_APP_KEY")
 APP_SECRET   = os.getenv("SCHWAB_SECRET")
-CALLBACK_URL = "https://localhost"
+CALLBACK_URL = "https://127.0.0.1"
 TOKEN_FILE   = os.path.join(os.path.dirname(__file__), "schwab_token.json")
 
 SMA_PERIOD   = 10   # 10-day SMA
@@ -55,9 +56,8 @@ def get_client(force_auth: bool = False):
         sys.exit("❌  SCHWAB_APP_KEY / SCHWAB_SECRET not set in scan/.env")
 
     if force_auth or not os.path.exists(TOKEN_FILE):
-        print("🔐  Starting OAuth2 login flow — a browser window will open.")
-        print("    Log in to Schwab, then paste the redirect URL back here.\n")
-        client = schwab.auth.client_from_login_flow(
+        print("🔐  Starting Schwab OAuth2 flow (manual/headless).")
+        client = schwab.auth.client_from_manual_flow(
             api_key=APP_KEY,
             app_secret=APP_SECRET,
             callback_url=CALLBACK_URL,
@@ -72,14 +72,23 @@ def get_client(force_auth: bool = False):
     return client
 
 
+def get_account_hash_map(client) -> dict:
+    """Return {accountNumber: hashValue} from the account numbers endpoint."""
+    resp = client.get_account_numbers()
+    resp.raise_for_status()
+    return {a["accountNumber"]: a["hashValue"] for a in resp.json()}
+
+
 def get_positions(client) -> list[dict]:
     """Return all open long equity positions across all accounts."""
+    hash_map = get_account_hash_map(client)
     resp = client.get_accounts(fields=[client.Account.Fields.POSITIONS])
     resp.raise_for_status()
     positions = []
     for account in resp.json():
-        acct = account.get("securitiesAccount", {})
-        acct_hash = account.get("hashValue", acct.get("accountNumber", ""))
+        acct     = account.get("securitiesAccount", {})
+        acct_num = acct.get("accountNumber", "")
+        acct_hash = hash_map.get(acct_num, acct_num)
         for pos in acct.get("positions", []):
             instr = pos.get("instrument", {})
             if instr.get("assetType") != "EQUITY":
@@ -186,26 +195,84 @@ def process_position(client, pos: dict, dry_run: bool):
         else:
             print(f"           ⚠️  cancel failed ({resp.status_code}) — proceeding anyway")
 
-    # Place new stop
+    # Place new stop (retry once on 429)
     order_spec = build_stop_order(ticker, qty, sma)
-    resp = client.place_order(acct_hash, order_spec)
-    if resp.status_code in (200, 201):
-        action = "updated" if existing else "placed"
-        print(f"           ✅ stop {action} @ ${sma:.2f} GTC")
-    else:
-        print(f"           ❌ place order failed ({resp.status_code}): {resp.text}")
+    for attempt in range(2):
+        resp = client.place_order(acct_hash, order_spec)
+        if resp.status_code in (200, 201):
+            action = "updated" if existing else "placed"
+            print(f"           ✅ stop {action} @ ${sma:.2f} GTC")
+            break
+        elif resp.status_code == 429 and attempt == 0:
+            print(f"           ⏳ rate limited, waiting 10s...")
+            time.sleep(10)
+        else:
+            print(f"           ❌ place order failed ({resp.status_code}): {resp.text}")
+            break
+    time.sleep(65)  # Schwab dev API enforces ~60s between order placements
 
 
 def main():
     parser = argparse.ArgumentParser(description="Set GTC stop-loss orders at 10-day SMA")
-    parser.add_argument("--auth",    action="store_true", help="Force re-authentication (browser flow)")
-    parser.add_argument("--dry-run", action="store_true", help="Show what would happen — no orders placed")
+    parser.add_argument("--get-auth-url",  action="store_true", help="Print the Schwab OAuth2 login URL")
+    parser.add_argument("--complete-auth", metavar="REDIRECT_URL", help="Complete auth by passing the redirect URL from the browser")
+    parser.add_argument("--dry-run",       action="store_true", help="Show what would happen — no orders placed")
     args = parser.parse_args()
+
+    # ── Step 1: print login URL ──────────────────────────────────────────────
+    if args.get_auth_url:
+        import secrets as _secrets
+        import urllib.parse as _up
+        state = _secrets.token_urlsafe(32)
+        params = {
+            "response_type": "code",
+            "client_id":     APP_KEY,
+            "redirect_uri":  CALLBACK_URL,
+            "state":         state,
+        }
+        url = "https://api.schwabapi.com/v1/oauth/authorize?" + _up.urlencode(params)
+        # Save state so complete-auth can verify it
+        import json as _json
+        with open(TOKEN_FILE + ".state", "w") as f:
+            _json.dump({"state": state}, f)
+        print("\n Open this URL in your browser:\n")
+        print(f"  {url}")
+        print("\n After logging in, run:")
+        print(f'  python3 schwab_stop_loss.py --complete-auth "<paste full redirect URL here>"\n')
+        return
+
+    # ── Step 2: exchange code for token ─────────────────────────────────────
+    if args.complete_auth:
+        import urllib.parse as _up, json as _json, httpx as _httpx, base64 as _b64
+        parsed   = _up.urlparse(args.complete_auth)
+        qs       = _up.parse_qs(parsed.query)
+        code     = qs.get("code", [None])[0]
+        if not code:
+            sys.exit("\u274c  No 'code' found in redirect URL. Copy the full URL after the browser redirects.")
+        creds    = _b64.b64encode(f"{APP_KEY}:{APP_SECRET}".encode()).decode()
+        resp     = _httpx.post(
+            "https://api.schwabapi.com/v1/oauth/token",
+            headers={"Authorization": f"Basic {creds}",
+                     "Content-Type":  "application/x-www-form-urlencoded"},
+            data={"grant_type":   "authorization_code",
+                  "code":         code,
+                  "redirect_uri": CALLBACK_URL},
+        )
+        if resp.status_code != 200:
+            sys.exit(f"\u274c  Token exchange failed ({resp.status_code}): {resp.text}")
+        token = resp.json()
+        import time as _time
+        token["expires_at"] = _time.time() + token.get("expires_in", 1800)
+        with open(TOKEN_FILE, "w") as f:
+            _json.dump(token, f, indent=2)
+        print(f"\u2705  Token saved to {TOKEN_FILE}")
+        print("   Run: python3 schwab_stop_loss.py --dry-run")
+        return
 
     if args.dry_run:
         print("\n⚠️   DRY RUN — no orders will be placed or cancelled\n")
 
-    client    = get_client(force_auth=args.auth)
+    client    = get_client(force_auth=False)
     positions = get_positions(client)
 
     if not positions:
