@@ -6,8 +6,9 @@
 
 ## What the Breakout Scanner Does
 
-The breakout scanner runs **every 30 minutes during market hours** and checks each stock
-on today's watchlist for an active breakout signal.
+The breakout scanner runs **every 30 minutes during market hours** and checks two lists:
+1. **Today's watchlist** (`watchlist_entries`) — stocks from the 8 AM scan already in a base near the pivot
+2. **Today's runners** (`runner_entries`) — Stage 1+2 passes in active markup (no base yet), checked for same-day base→breakout transitions via `check_runner_breakout()`
 
 A breakout is confirmed when ALL of the following are true:
 1. **Price > pivot** — current price has crossed above the base high
@@ -17,7 +18,7 @@ A breakout is confirmed when ALL of the following are true:
 When a breakout fires, it is:
 - Written to `breakout_entries` in SQL Server (once per ticker per day)
 - Logged in `scan/logs/breakout.log`
-- Sent via SMS if Twilio is configured
+- Sent via Telegram (always) and SMS via Twilio (if configured)
 
 ---
 
@@ -304,11 +305,13 @@ MAX_CLOSE_FROM_HIGH_PCT=3.0   # was 5.0 — candle must close within 3% of high
 ```
 
 ### Tighten the Underlying Setup
-These are inherited from the watchlist criteria (set at 8 AM):
+These are watchlist criteria (set at 8 AM) that flow through to breakout quality.
+Current defaults are in `scan/config.py`; override via `scan/.env`:
 ```env
-MIN_PRIOR_MOVE_PCT=40
-MAX_BASE_DEPTH_PCT=10
-MAX_BASE_VOL_RATIO=0.45
+MIN_MOMENTUM_3M_PCT=25     # was 15 — require stronger 3M momentum
+MIN_MOMENTUM_6M_PCT=40     # was 30 — require stronger 6M momentum
+MAX_BASE_DEPTH_PCT=10      # was 20 — require tighter base
+MAX_BASE_VOL_RATIO=0.60    # was 0.85 — require more volume contraction (grading bonus, not a gate)
 ```
 
 ---
@@ -339,5 +342,5 @@ tail -100 /home/ubuntu/.openclaw/workspace/stocks-repo/scan/logs/breakout.log
 
 ---
 
-*Last updated: 2026-04-27*
-*See also: `watchlist-usage.md`, `breakout-scanner-plan.md`*
+*Last updated: 2026-04-30*
+*See also: `watchlist-usage.md`, `breakout-scanner-plan.md`, `runners-plan.md`*

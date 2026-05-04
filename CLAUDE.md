@@ -28,9 +28,9 @@ Three scanners run on AWS EC2 (Ubuntu 24.04) via cron:
 
 | Scanner | Schedule | Output table |
 |---------|----------|-------------|
-| `watchlist_scanner.py` | 8:00 AM EST weekdays | `watchlist_entries` |
-| `breakout_scanner.py` | Every 30 min, 9:30–4:00 PM EST | `breakout_entries` |
-| `performance_tracker.py` | 4:30 PM EST weekdays | `watchlist_performance`, `breakout_performance` |
+| `watchlist_scanner.py` | 8:00 AM EST weekdays | `watchlist_entries`, `runner_entries` |
+| `breakout_scanner.py` | Every 30 min, 9:30–4:00 PM EST | `breakout_entries` (checks watchlist + runners) |
+| `performance_tracker.py` | 4:30 PM EST weekdays | `watchlist_performance`, `breakout_performance`, `runner_performance` |
 
 **Data source:** yfinance (free, no API key). Swap in Polygon.io by replacing
 `fetch_history()` / `fetch_intraday()` in `shared/data_fetcher.py` — rest of code is source-agnostic.
@@ -111,8 +111,9 @@ does not drop a stock. Do not revert this to a gate.
 - No backtesting harness — criteria changes validated on current data only
 - `tickers_nasdaq()` from yahoo_fin returns all Nasdaq-listed stocks (~5,000+); no pre-screen
   by market cap or price before the bulk download. Stage 1 drops most, but the download is wide.
-- Telegram `send_watchlist_summary()` splits into multi-part messages when watchlist > ~30 stocks.
 - **yfinance ≥1.x**: `yf.download()` always returns `(ticker, field)` MultiIndex — always access
   per-ticker data with `raw[ticker]`, never `raw.copy()` on single-ticker batches.
 - Runner stocks that form a base intraday are caught by the breakout scanner same day;
   those that form overnight are caught by the 8 AM watchlist scan the next day.
+- Telegram large messages split via `_send_chunked()` in `shared/telegram_notify.py` — splits
+  on blank lines into ≤4000-char parts. Works correctly but adds round-trips for large watchlists.

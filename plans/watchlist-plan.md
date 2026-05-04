@@ -21,33 +21,52 @@ The goal is a fully automated, scheduled Python script that:
 ## Watchlist Criteria (What Makes the List)
 
 These are based on the Qullamaggie rules documented in `qullamaggie/breakouts/Rules.MD`.
-A stock enters the daily watchlist if it passes **all Stage 1-4 checks** and is **approaching
-a breakout** (within 2–5% of pivot):
+A stock enters the daily watchlist if it passes Stage 1–3 and is **approaching a breakout**
+(within 8% of pivot). Stage 4 is bonus grading only — a None result does not exclude a stock.
 
-### Stage 1: Universe Filter
+> **Note on Stage 2 (updated 2026-04-29):** Stage 2 is now multi-timeframe momentum
+> (`check_momentum_trend()`), not the prior explosive move. Prior move is Stage 2b — bonus
+> grading only. See [Issue #11](#11-stage-2-redesign-momentum-trend-filter-2026-04-29) below.
+
+### Stage 1: Universe Filter *(hard gate)*
 - Price ≥ $5.00
 - 20-day average daily volume ≥ 300,000 shares
 - Average Daily Range (ADR%) ≥ 3%
 - Not OTC / pink sheets
 
-### Stage 2: Prior Explosive Move
+### Stage 2: Momentum Trend — `check_momentum_trend()` *(hard gate — NEVER AGES OUT)*
+*(Updated 2026-04-29: replaced prior explosive move as the Stage 2 gate)*
+- 1M (20d) gain ≥ **5%**
+- 3M (60d) gain ≥ **15%**
+- 6M (120d) gain ≥ **30%**
+- Within 20% of 52-week high
+
+### Stage 2b: Prior Explosive Move — `find_prior_explosive_move()` *(bonus grading only — not a gate)*
+*(Demoted from gate to bonus 2026-04-29)*
 - Gained ≥ **25%** from a low within the last **60 trading days** *(updated 2026-04-27: was 30% / 40 days)*
 - At least 1 day during the move with volume ≥ 2× its 20-day average
 - Currently within 20% of its 52-week high
 
-### Stage 3: Tight Base Formation
+### Stage 3: Tight Base Formation *(hard gate)*
 - Consolidation duration: 5–40 trading days
 - Base depth (high-to-low): ≤ **20%** *(updated 2026-04-27: was 15%)*
 - Price has not closed below the 50-day MA during the base
 - 10-day MA is above the 20-day MA
 
-### Stage 4: Volume Contraction
-- Average volume during base ≤ **75%** of 50-day average *(updated 2026-04-27: was 60%)*
+### Stage 4: Volume Contraction *(bonus grading only — not a gate since 2026-04-29)*
+- Average volume during base ≤ **85%** of 50-day average *(updated 2026-04-29: was 60% → 75% → 85%)*
 - At least 3 consecutive below-average volume days recently
+- Passing improves grade; failing does NOT exclude the stock
 
 ### Watchlist Trigger: Near the Pivot
-- Current price is within 5% of the base high (pivot price)
+- Current price is within **8%** of the base high (pivot price) *(updated 2026-04-29: was 5%)*
 - A breakout alert will be set at the pivot price
+
+### Runner Path (Stage 1+2 ✅, Stage 3 ❌)
+- Stocks that pass Stage 1+2 but have **no base yet** go to `runner_entries` instead of being dropped
+- Qualifier: price > MA20 > MA50, within 15% of 20-day high
+- Runners flow onto the main watchlist automatically when a base forms — no manual promotion needed
+- See `plans/runners-plan.md` for full detail
 
 ---
 

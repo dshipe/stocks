@@ -9,14 +9,14 @@
 ## Overview
 
 The breakout scanner differs from the watchlist in one key way:
-- **Watchlist** = stocks *approaching* a breakout (setting up within 5% of pivot)
+- **Watchlist** = stocks *approaching* a breakout (setting up within **8%** of pivot)
 - **Breakout scanner** = stocks that are **breaking out RIGHT NOW** (price crossing the pivot on volume)
 
-The scanner runs every **30 minutes during market hours** and checks only the stocks on
-**today's watchlist**. This keeps the scan fast, focused, and low-cost — no need to screen
-the full market universe intraday. The watchlist (generated at 8 AM EST) provides the
-pre-qualified candidate list; the breakout scanner monitors those candidates throughout
-the day and fires when one triggers.
+The scanner runs every **30 minutes during market hours** and checks:
+1. **Today's watchlist** (`watchlist_entries`) — the 8 AM pre-qualified candidates
+2. **Today's runners** (`runner_entries`) — Stage 1+2 passes still in markup (no base yet), via `check_runner_breakout()`. This catches same-day runner→base→breakout transitions the morning scan would miss.
+
+This keeps the scan fast and focused — no full-universe screen intraday.
 
 ---
 
@@ -24,15 +24,17 @@ the day and fires when one triggers.
 
 Based on Stages 5–8 of `qullamaggie/breakouts/Rules.MD`:
 
-### Required (Hard Rules)
+### Required (Hard Rules — checked at breakout time)
 | Rule | Criterion |
 |------|-----------|
 | R23 | Price has broken above the high of the consolidation base (pivot price) |
 | R24 | Breakout volume ≥ 150% of 20-day average volume |
 | R25 | Breakout candle closes within 5% of its high (strong close) |
-| R6–R10 | Prior move of ≥ 25% within last 60 trading days *(updated 2026-04-27)* |
-| R11–R12 | Base depth ≤ 20%, duration 5–40 days *(updated 2026-04-27: was 15%)* |
-| R19 | Average base volume ≤ 75% of 50-day average *(updated 2026-04-27: was 60%)* |
+
+> **Note:** R6–R10 (prior move), R11–R12 (base depth/duration), and R19 (volume contraction)
+> are **setup criteria** evaluated by the watchlist scanner at 8 AM — not re-checked intraday.
+> Since 2026-04-29 they are also bonus grading signals, not hard gates. A stock on the
+> watchlist already satisfied Stage 1+2+3 before the market opened.
 
 ### Preferred (Adds Confidence)
 | Rule | Criterion |
@@ -585,8 +587,17 @@ adding ~2 seconds of latency per scan cycle.
 **Mitigation:** SPY data is fetched once per run and reused for all tickers. Future
 optimisation: cache SPY context to disk with a 4-hour TTL to avoid repeated fetches.
 
+### 7. Runner Breakout Detection Added (2026-04-30)
+**Change:** The breakout scanner now also scans `runner_entries` (stocks in markup with no
+base yet) via `check_runner_breakout()`. If a runner forms a base intraday and immediately
+breaks out, the scanner catches it — something the 8 AM watchlist scan would miss entirely.
+
+This means the breakout scanner checks two sources on each 30-minute run:
+1. `watchlist_entries` (pre-qualified base setups from the morning scan)
+2. `runner_entries` (Stage 1+2 passes still in markup — same-day base→breakout only)
+
 ---
 
-*Last updated: 2026-04-27*
+*Last updated: 2026-04-30*
 *Based on: `qullamaggie/breakouts/Rules.MD`, `qullamaggie/breakouts/Summary.MD`, `qullamaggie/breakouts/vcp_setup.MD`*
 *Implemented: 2026-04-27 on Ubuntu 24.04 AWS EC2, Python 3.12, SQL Server 2016*
