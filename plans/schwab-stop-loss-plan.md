@@ -185,24 +185,65 @@ schwab-py>=1.4.0
 
 ---
 
-## First-Run Authentication
+## Scheduling (Cron)
 
-The first time the script runs, Schwab requires a browser-based OAuth2 login:
+The script runs automatically every weekday at **7:30 AM EDT (11:30 UTC)** —
+30 minutes before the watchlist scanner, 2 hours before market open.
+This ensures GTC stops are in place before any breakout signals fire.
 
-```bash
-cd scan
-python3 schwab/schwab_stop_loss.py --auth
-# Opens browser → log in to Schwab → paste redirect URL back into terminal
-# Token saved to schwab/schwab_token.json
-# All future runs use the saved token (auto-refreshed)
+```
+# Cron schedule (installed via cron_setup.sh or manually)
+30 11 * * 1-5  cd scan/ && python3 schwab/schwab_stop_loss.py >> logs/schwab_stop_loss.log 2>&1
 ```
 
-After auth, the normal run (no browser needed):
-```bash
-python3 schwab/schwab_stop_loss.py
+Full daily schedule:
 
-# Dry run — show what would happen without placing orders
-python3 schwab/schwab_stop_loss.py --dry-run
+| Time (EDT) | UTC | Job |
+|------------|-----|-----|
+| 7:30 AM | 11:30 | `schwab_stop_loss.py` — set GTC stops at 10d SMA |
+| 8:00 AM | 12:00 | `watchlist_scanner.py` — scan full market |
+| 9:30 AM | 13:30 | Market opens |
+| Every :00/:30 | 13:30–20:00 | `breakout_scanner.py` |
+| 4:30 PM | 20:30 | `performance_tracker.py` |
+
+Check the log:
+```bash
+tail -50 /home/ubuntu/.openclaw/workspace/stocks-repo/scan/logs/schwab_stop_loss.log
+```
+
+---
+
+## First-Run Authentication
+
+Schwab OAuth2 is a two-step process for headless servers:
+
+**Step 1 — Get the login URL:**
+```bash
+cd scan
+python3 schwab/schwab_stop_loss.py --get-auth-url
+# Prints a URL — open it in your browser, log in, approve access
+```
+
+**Step 2 — Complete the auth (run immediately after browser redirect):**
+The script uses `schwab.auth.client_from_manual_flow()` via PTY:
+```bash
+python3 -c "
+import schwab.auth
+client = schwab.auth.client_from_manual_flow(
+    api_key='YOUR_KEY', app_secret='YOUR_SECRET',
+    callback_url='https://127.0.0.1',
+    token_path='schwab/schwab_token.json')
+"
+# Paste the full redirect URL when prompted
+# Token saved to schwab/schwab_token.json (gitignored)
+```
+
+All future runs (including cron) use the saved token — auto-refreshed by schwab-py.
+
+Normal run / dry run:
+```bash
+python3 schwab/schwab_stop_loss.py --dry-run   # preview, no orders placed
+python3 schwab/schwab_stop_loss.py             # live
 ```
 
 ---
@@ -232,16 +273,37 @@ python3 schwab/schwab_stop_loss.py --dry-run
 
 ---
 
+## Known Behaviour / Constraints
+
+- **Schwab dev API rate limit:** ~60s between order placements. Script sleeps 65s between each position. 5 positions = ~6 min total runtime. This is expected for developer-tier apps.
+- **SMA ≥ current price:** Positions where the 10d SMA is at or above the current price are skipped — placing a stop there would trigger an immediate fill.
+- **`PENDING_ACTIVATION` is normal:** GTC stop orders show as `PENDING_ACTIVATION` outside market hours. They activate at the open.
+- **Duplicate stops from retries:** If the script is run multiple times (or retried), duplicate stops may appear. The cancel-existing logic handles this on the next run.
+
+---
+
 ## Tech Debt / Future Improvements
 
-- Replace cancel-then-place with place-then-cancel (eliminates stop gap)
+- Replace cancel-then-place with place-then-cancel (eliminates brief stop gap)
 - Support short positions (`shortQuantity > 0`) with buy-stop orders
 - Add ATR-based floor: never set stop below `SMA - 1×ATR` to avoid noise stops
 - Add Telegram notification after each run (mirrors watchlist scanner pattern)
 - Support percentage-based stop as an alternative to SMA (config flag)
 - Cache SMA calculations to avoid redundant yfinance calls if run multiple times per day
+- Investigate Schwab production API approval to lift the 60s rate limit
+
+---
+
+## Implementation Notes
+
+| Date | Change |
+|------|--------|
+| 2026-05-04 | Initial implementation. Auth via `client_from_manual_flow` (headless). |
+| 2026-05-04 | Account hash fetched via `get_account_numbers()` (not in positions response). |
+| 2026-05-04 | 65s sleep between order placements to handle Schwab dev API rate limit. |
+| 2026-05-04 | Cron installed: 7:30 AM EDT (11:30 UTC) weekdays. |
 
 ---
 
 *Created: 2026-05-04*
-*See also: `plans/watchlist-plan.md`, `scan/config.py`*
+*See also: `plans/watchlist-plan.md`, `scan/config.py`, `scan/cron_setup.sh`*

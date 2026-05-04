@@ -2,9 +2,10 @@
 # cron_setup.sh — Install all cron jobs for the stock scanning system.
 #
 # Jobs installed:
-#   1. watchlist_scanner.py    — 8:00 AM EST (13:00 UTC), Mon-Fri
-#   2. breakout_scanner.py     — every 30 min during market hours, Mon-Fri
-#   3. performance_tracker.py  — 4:30 PM EST (21:30 UTC), Mon-Fri
+#   1. schwab_stop_loss.py     — 7:30 AM EDT (11:30 UTC), Mon-Fri
+#   2. watchlist_scanner.py    — 8:00 AM EDT (12:00 UTC), Mon-Fri
+#   3. breakout_scanner.py     — every 30 min during market hours, Mon-Fri
+#   4. performance_tracker.py  — 4:30 PM EDT (20:30 UTC), Mon-Fri
 #
 # Usage:
 #   chmod +x cron_setup.sh
@@ -76,20 +77,25 @@ WATCHLIST_CRON="0 13 * * 1-5 cd $SCRIPT_DIR && $PYTHON $SCRIPT_DIR/watchlist_sca
 BREAKOUT_CRON_1="0,30 14-20 * * 1-5 cd $SCRIPT_DIR && $PYTHON $SCRIPT_DIR/breakout_scanner.py >> $LOG_DIR/breakout.log 2>&1"
 BREAKOUT_CRON_2="0 21 * * 1-5 cd $SCRIPT_DIR && $PYTHON $SCRIPT_DIR/breakout_scanner.py >> $LOG_DIR/breakout.log 2>&1"
 
-PERF_CRON="30 21 * * 1-5 cd $SCRIPT_DIR && $PYTHON $SCRIPT_DIR/performance_tracker.py >> $LOG_DIR/performance.log 2>&1"
+STOP_LOSS_CRON="30 11 * * 1-5 cd $SCRIPT_DIR && $PYTHON $SCRIPT_DIR/schwab/schwab_stop_loss.py >> $LOG_DIR/schwab_stop_loss.log 2>&1"
+
+PERF_CRON="30 20 * * 1-5 cd $SCRIPT_DIR && $PYTHON $SCRIPT_DIR/performance_tracker.py >> $LOG_DIR/performance.log 2>&1"
 
 # ─── Install cron jobs ────────────────────────────────────────────────────────
 echo ""
 echo "Installing the following cron jobs:"
 echo ""
-echo "  [1] Watchlist scanner (8:00 AM EST / 13:00 UTC, Mon-Fri):"
+echo "  [1] Schwab stop-loss (7:30 AM EDT / 11:30 UTC, Mon-Fri):"
+echo "      $STOP_LOSS_CRON"
+echo ""
+echo "  [2] Watchlist scanner (8:00 AM EDT / 12:00 UTC, Mon-Fri):"
 echo "      $WATCHLIST_CRON"
 echo ""
-echo "  [2] Breakout scanner (every 30 min, 9:30 AM-4:00 PM EST, Mon-Fri):"
+echo "  [3] Breakout scanner (every 30 min, 9:30 AM-4:00 PM EDT, Mon-Fri):"
 echo "      $BREAKOUT_CRON_1"
 echo "      $BREAKOUT_CRON_2"
 echo ""
-echo "  [3] Performance tracker (4:30 PM EST / 21:30 UTC, Mon-Fri):"
+echo "  [4] Performance tracker (4:30 PM EDT / 20:30 UTC, Mon-Fri):"
 echo "      $PERF_CRON"
 echo ""
 read -p "Confirm installation? [Y/n]: " install_confirm
@@ -100,17 +106,20 @@ fi
 
 # Preserve existing crontab and append new jobs
 (
-    crontab -l 2>/dev/null | grep -v "watchlist_scanner\|breakout_scanner\|performance_tracker"
+    crontab -l 2>/dev/null | grep -v "watchlist_scanner\|breakout_scanner\|performance_tracker\|schwab_stop_loss"
     echo ""
     echo "# ── Stock Scanner (installed by cron_setup.sh) ──────────────────────"
-    echo "# Watchlist: 8:00 AM EST (13:00 UTC) weekdays"
+    echo "# Schwab stop-loss: 7:30 AM EDT (11:30 UTC) weekdays"
+    echo "$STOP_LOSS_CRON"
+    echo ""
+    echo "# Watchlist: 8:00 AM EDT (12:00 UTC) weekdays"
     echo "$WATCHLIST_CRON"
     echo ""
-    echo "# Breakout scanner: every 30 min during market hours (9:30 AM-4:00 PM EST)"
+    echo "# Breakout scanner: every 30 min during market hours (9:30 AM-4:00 PM EDT)"
     echo "$BREAKOUT_CRON_1"
     echo "$BREAKOUT_CRON_2"
     echo ""
-    echo "# Performance tracker: 4:30 PM EST (21:30 UTC) weekdays"
+    echo "# Performance tracker: 4:30 PM EDT (20:30 UTC) weekdays"
     echo "$PERF_CRON"
     echo "# ────────────────────────────────────────────────────────────────────"
 ) | crontab -
