@@ -2,7 +2,7 @@
 # cron_setup.sh — Install all cron jobs for the stock scanning system.
 #
 # Jobs installed:
-#   1. schwab_stop_loss.py     — 7:30 AM EDT (11:30 UTC), Mon-Fri
+#   1. schwab_stop_loss.py     — 8:15 AM EDT (12:15 UTC), Mon-Fri
 #   2. watchlist_scanner.py    — 8:00 AM EDT (12:00 UTC), Mon-Fri
 #   3. breakout_scanner.py     — every 30 min during market hours, Mon-Fri
 #   4. performance_tracker.py  — 4:30 PM EDT (20:30 UTC), Mon-Fri
@@ -77,7 +77,7 @@ WATCHLIST_CRON="0 13 * * 1-5 cd $SCRIPT_DIR && $PYTHON $SCRIPT_DIR/watchlist_sca
 BREAKOUT_CRON_1="0,30 14-20 * * 1-5 cd $SCRIPT_DIR && $PYTHON $SCRIPT_DIR/breakout_scanner.py >> $LOG_DIR/breakout.log 2>&1"
 BREAKOUT_CRON_2="0 21 * * 1-5 cd $SCRIPT_DIR && $PYTHON $SCRIPT_DIR/breakout_scanner.py >> $LOG_DIR/breakout.log 2>&1"
 
-STOP_LOSS_CRON="30 11 * * 1-5 cd $SCRIPT_DIR && $PYTHON $SCRIPT_DIR/schwab/schwab_stop_loss.py >> $LOG_DIR/schwab_stop_loss.log 2>&1"
+STOP_LOSS_CRON="15 12 * * 1-5 cd $SCRIPT_DIR && $PYTHON $SCRIPT_DIR/schwab/schwab_stop_loss.py >> $LOG_DIR/schwab_stop_loss.log 2>&1"
 
 PERF_CRON="30 20 * * 1-5 cd $SCRIPT_DIR && $PYTHON $SCRIPT_DIR/performance_tracker.py >> $LOG_DIR/performance.log 2>&1"
 
@@ -85,7 +85,7 @@ PERF_CRON="30 20 * * 1-5 cd $SCRIPT_DIR && $PYTHON $SCRIPT_DIR/performance_track
 echo ""
 echo "Installing the following cron jobs:"
 echo ""
-echo "  [1] Schwab stop-loss (7:30 AM EDT / 11:30 UTC, Mon-Fri):"
+echo "  [1] Schwab stop-loss (8:15 AM EDT / 12:15 UTC, Mon-Fri):"
 echo "      $STOP_LOSS_CRON"
 echo ""
 echo "  [2] Watchlist scanner (8:00 AM EDT / 12:00 UTC, Mon-Fri):"

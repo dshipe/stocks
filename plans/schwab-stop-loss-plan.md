@@ -187,21 +187,20 @@ schwab-py>=1.4.0
 
 ## Scheduling (Cron)
 
-The script runs automatically every weekday at **7:30 AM EDT (11:30 UTC)** —
-30 minutes before the watchlist scanner, 2 hours before market open.
-This ensures GTC stops are in place before any breakout signals fire.
+The script runs automatically every weekday at **8:15 AM EDT (12:15 UTC)** —
+15 minutes after the watchlist scanner, well before the market opens at 9:30 AM.
 
 ```
 # Cron schedule (installed via cron_setup.sh or manually)
-30 11 * * 1-5  cd scan/ && python3 schwab/schwab_stop_loss.py >> logs/schwab_stop_loss.log 2>&1
+15 12 * * 1-5  cd scan/ && python3 schwab/schwab_stop_loss.py >> logs/schwab_stop_loss.log 2>&1
 ```
 
 Full daily schedule:
 
 | Time (EDT) | UTC | Job |
 |------------|-----|-----|
-| 7:30 AM | 11:30 | `schwab_stop_loss.py` — set GTC stops at 10d SMA |
 | 8:00 AM | 12:00 | `watchlist_scanner.py` — scan full market |
+| 8:15 AM | 12:15 | `schwab_stop_loss.py` — set GTC stops at 10d SMA |
 | 9:30 AM | 13:30 | Market opens |
 | Every :00/:30 | 13:30–20:00 | `breakout_scanner.py` |
 | 4:30 PM | 20:30 | `performance_tracker.py` |
@@ -301,7 +300,7 @@ python3 schwab/schwab_stop_loss.py             # live
 | 2026-05-04 | Initial implementation. Auth via `client_from_manual_flow` (headless). |
 | 2026-05-04 | Account hash fetched via `get_account_numbers()` (not in positions response). |
 | 2026-05-04 | 65s sleep between order placements to handle Schwab dev API rate limit. |
-| 2026-05-04 | Cron installed: 7:30 AM EDT (11:30 UTC) weekdays. |
+| 2026-05-04 | Cron installed: 8:15 AM EDT (12:15 UTC) weekdays. |
 
 ---
 
