@@ -9,8 +9,10 @@
 ## Overview
 
 Run this script manually (or on a schedule) to keep stop-loss orders aligned with the
-trailing 10-day SMA across all positions. If a stop already exists for a position, it
-is replaced with the updated SMA price. If no stop exists, one is created.
+trailing 10-day SMA across all positions. **Only raises or creates stops — never lowers them.**
+If a stop already exists and the SMA is higher than the current stop, it is updated.
+If the SMA is lower than the current stop, the stop is left unchanged.
+If no stop exists, one is created at the 10-day SMA.
 
 ---
 
@@ -23,8 +25,10 @@ is replaced with the updated SMA price. If no stop exists, one is created.
    a. Fetch 10 trading days of daily OHLCV history (yfinance fallback if needed)
    b. Calculate 10-day SMA on closing prices
    c. Check for an existing GTC stop-loss order on that ticker
-   d. If stop exists  → cancel it, place new stop at SMA price
-      If no stop      → place new GTC stop-loss order at SMA price
+   d. If stop exists:
+      - If SMA > current stop price  → cancel old stop, place new stop at SMA
+      - If SMA ≤ current stop price  → leave stop unchanged (do not lower it)
+      If no stop exists → place new GTC stop-loss order at SMA price
 4. Print a summary: ticker | qty | current price | 10d SMA | stop action taken
 ```
 
@@ -135,38 +139,61 @@ for pos in positions:
     sma_10 = round(df["Close"].tail(10).mean(), 2)
     pos["sma_10"] = sma_10
 
-# 4. Cancel existing stop + place new one
+# 4. Manage stops — only raise, never lower
 for pos in positions:
     ticker    = pos["ticker"]
     acct_hash = pos["account_hash"]
     sma_10    = pos["sma_10"]
     qty       = int(pos["qty"])
 
-    # Find and cancel any existing GTC STOP orders for this ticker
+    # Find existing GTC STOP orders for this ticker
     orders = client.get_orders_for_account(
         account_hash=acct_hash,
         status=client.Order.Status.WORKING,
     )
+    
+    existing_stop = None
     for order in orders.json():
         if (order["orderType"] == "STOP"
                 and order["duration"] == "GOOD_TILL_CANCEL"
                 and order["orderLegCollection"][0]["instrument"]["symbol"] == ticker):
-            client.cancel_order(acct_hash, order["orderId"])
-            print(f"  {ticker}: cancelled existing stop @ ${order['stopPrice']:.2f}")
-
-    # Place new GTC stop-loss at 10-day SMA
-    order_spec = (
-        schwab.orders.equities.equity_sell_market(ticker, qty)
-        .set_order_type(schwab.orders.common.OrderType.STOP)
-        .set_duration(schwab.orders.common.Duration.GOOD_TILL_CANCEL)
-        .set_stop_price(sma_10)
-        .build()
-    )
-    resp = client.place_order(acct_hash, order_spec)
-    if resp.status_code in (200, 201):
-        print(f"  {ticker}: ✅ stop set @ ${sma_10:.2f} (10d SMA) | qty {qty}")
+            existing_stop = order
+            break
+    
+    if existing_stop:
+        current_stop_price = existing_stop["stopPrice"]
+        if sma_10 > current_stop_price:
+            # SMA is higher: raise the stop
+            client.cancel_order(acct_hash, existing_stop["orderId"])
+            order_spec = (
+                schwab.orders.equities.equity_sell_market(ticker, qty)
+                .set_order_type(schwab.orders.common.OrderType.STOP)
+                .set_duration(schwab.orders.common.Duration.GOOD_TILL_CANCEL)
+                .set_stop_price(sma_10)
+                .build()
+            )
+            resp = client.place_order(acct_hash, order_spec)
+            if resp.status_code in (200, 201):
+                print(f"  {ticker}: ✅ stop raised @ ${sma_10:.2f} (was ${current_stop_price:.2f})")
+            else:
+                print(f"  {ticker}: ❌ order failed — {resp.status_code} {resp.text}")
+        else:
+            # SMA is lower: leave stop unchanged
+            print(f"  {ticker}: ⏸ stop unchanged @ ${current_stop_price:.2f} (SMA ${sma_10:.2f} is lower)")
     else:
-        print(f"  {ticker}: ❌ order failed — {resp.status_code} {resp.text}")
+        # No existing stop: create one at SMA
+        order_spec = (
+            schwab.orders.equities.equity_sell_market(ticker, qty)
+            .set_order_type(schwab.orders.common.OrderType.STOP)
+            .set_duration(schwab.orders.common.Duration.GOOD_TILL_CANCEL)
+            .set_stop_price(sma_10)
+            .build()
+        )
+        resp = client.place_order(acct_hash, order_spec)
+        if resp.status_code in (200, 201):
+            print(f"  {ticker}: ✅ stop created @ ${sma_10:.2f} (10d SMA) | qty {qty}")
+        else:
+            print(f"  {ticker}: ❌ order failed — {resp.status_code} {resp.text}")
 ```
 
 ---
@@ -181,12 +208,12 @@ for pos in positions:
 
   Ticker   Qty   Avg Cost   Current   10d SMA   Action
   ──────────────────────────────────────────────────────────────
-  NVDA     100   $115.20    $128.40   $122.50   ✅ stop updated (was $119.00)
-  CELH      50   $44.10     $48.20    $46.30    ✅ stop placed (new)
-  AXON      25   $295.00    $312.50   $308.10   ✅ stop updated (was $301.00)
-  SMCI      75   $26.80     $29.10    $27.90    ✅ stop placed (new)
-  CRWD      30   $380.00    $410.00   $398.20   ✅ stop updated (was $390.00)
-  TSLA      40   $240.00    $265.00   $258.40   ✅ stop placed (new)
+  NVDA     100   $115.20    $128.40   $122.50   ✅ stop raised (was $119.00)
+  CELH      50   $44.10     $48.20    $46.30    ✅ stop created (new)
+  AXON      25   $295.00    $312.50   $308.10   ✅ stop raised (was $301.00)
+  SMCI      75   $26.80     $29.10    $27.90    ⏸ stop unchanged @ $26.00 (SMA lower)
+  CRWD      30   $380.00    $410.00   $398.20   ✅ stop raised (was $390.00)
+  TSLA      40   $240.00    $265.00   $258.40   ✅ stop created (new)
   ──────────────────────────────────────────────────────────────
   6/6 stops set successfully
 ```
@@ -289,6 +316,8 @@ Response:
 - Script only touches EQUITY positions — options are skipped
 - Only long positions are handled (`longQuantity > 0`)
 - Orders with `qty = 0` are skipped
+- Only stops that are **lower than the 10-day SMA** are updated
+- If the 10-day SMA drops below the existing stop, the stop is left unchanged
 - The script cancels the old stop before placing the new one — there is a brief window
   with no stop. Future improvement: place new stop first, then cancel old.
 
@@ -337,6 +366,7 @@ Response:
 | 2026-05-04 | 65s sleep between order placements to handle Schwab dev API rate limit. |
 | 2026-05-04 | Cron installed: 8:15 AM EDT (12:15 UTC) weekdays. |
 | 2026-05-04 | **[TOKEN BRANCH]** Switched to Lambda API token endpoint. No browser OAuth2 needed. Token cached locally (5-min TTL). |
+| 2026-05-05 | **[STOP BRANCH]** Only raise or create stops, never lower them. If SMA < current stop, leave unchanged. |}]}
 
 ---
 
