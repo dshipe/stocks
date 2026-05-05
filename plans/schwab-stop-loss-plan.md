@@ -175,11 +175,13 @@ for pos in positions:
             resp = client.place_order(acct_hash, order_spec)
             if resp.status_code in (200, 201):
                 print(f"  {ticker}: ✅ stop raised @ ${sma_10:.2f} (was ${current_stop_price:.2f})")
+                send_telegram(f"✅ <b>{ticker}</b>: Stop <b>raised</b> to ${sma_10:.2f} (was ${current_stop_price:.2f})")
             else:
                 print(f"  {ticker}: ❌ order failed — {resp.status_code} {resp.text}")
         else:
             # SMA is lower: leave stop unchanged
             print(f"  {ticker}: ⏸ stop unchanged @ ${current_stop_price:.2f} (SMA ${sma_10:.2f} is lower)")
+            send_telegram(f"⏸ <b>{ticker}</b>: Stop <b>unchanged</b> @ ${current_stop_price:.2f} (SMA ${sma_10:.2f} is lower)")
     else:
         # No existing stop: create one at SMA
         order_spec = (
@@ -192,8 +194,34 @@ for pos in positions:
         resp = client.place_order(acct_hash, order_spec)
         if resp.status_code in (200, 201):
             print(f"  {ticker}: ✅ stop created @ ${sma_10:.2f} (10d SMA) | qty {qty}")
+            send_telegram(f"✅ {ticker}: Stop created @ ${sma_10:.2f}")
         else:
             print(f"  {ticker}: ❌ order failed — {resp.status_code} {resp.text}")
+
+
+# 5. Send Telegram notifications
+def send_telegram(message):
+    """Send a Telegram message."""
+    bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
+    chat_id = os.getenv('TELEGRAM_CHAT_ID')
+    
+    if not bot_token or not chat_id:
+        print("  ⚠️  Telegram credentials not configured")
+        return
+    
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    payload = {
+        'chat_id': chat_id,
+        'text': message,
+        'parse_mode': 'HTML'
+    }
+    
+    try:
+        resp = requests.post(url, json=payload, timeout=10)
+        if resp.status_code != 200:
+            print(f"  ⚠️  Telegram error: {resp.status_code} {resp.text}")
+    except Exception as e:
+        print(f"  ⚠️  Telegram failed: {e}")
 ```
 
 ---
@@ -227,6 +255,8 @@ Credentials are loaded from `scan/.env` (not committed to git):
 ```env
 SCHWAB_APP_KEY=your_app_key
 SCHWAB_SECRET=your_secret
+TELEGRAM_BOT_TOKEN=your_bot_token
+TELEGRAM_CHAT_ID=your_chat_id
 ```
 
 Token file is created on first run at `schwab/schwab_token.json`.
@@ -240,11 +270,13 @@ Add to `.gitignore`: `schwab/schwab_token.json`.
 pip install schwab-py           # Official Schwab API client
 pip install yfinance            # Price history (already installed)
 pip install python-dotenv       # .env loading (already installed)
+pip install requests            # HTTP client for Telegram API
 ```
 
 Add to `requirements.txt`:
 ```
 schwab-py>=1.4.0
+requests>=2.28.0
 ```
 
 ---
@@ -318,6 +350,7 @@ Response:
 - Orders with `qty = 0` are skipped
 - Only stops that are **lower than the 10-day SMA** are updated
 - If the 10-day SMA drops below the existing stop, the stop is left unchanged
+- **Telegram notifications** are sent for every stop action (raised, created, or unchanged)
 - The script cancels the old stop before placing the new one — there is a brief window
   with no stop. Future improvement: place new stop first, then cancel old.
 
@@ -366,7 +399,8 @@ Response:
 | 2026-05-04 | 65s sleep between order placements to handle Schwab dev API rate limit. |
 | 2026-05-04 | Cron installed: 8:15 AM EDT (12:15 UTC) weekdays. |
 | 2026-05-04 | **[TOKEN BRANCH]** Switched to Lambda API token endpoint. No browser OAuth2 needed. Token cached locally (5-min TTL). |
-| 2026-05-05 | **[STOP BRANCH]** Only raise or create stops, never lower them. If SMA < current stop, leave unchanged. |}]}
+| 2026-05-05 | **[STOP BRANCH]** Only raise or create stops, never lower them. If SMA < current stop, leave unchanged. |
+| 2026-05-05 | **[STOP BRANCH]** Added Telegram notifications for all stop actions (raised, created, unchanged). |}]}}]}
 
 ---
 
