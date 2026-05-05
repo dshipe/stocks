@@ -315,29 +315,24 @@ No manual OAuth2 flow needed. The script automatically fetches the token from th
 **First run:**
 ```bash
 cd scan
-python3 schwab/schwab_stop_loss.py --dry-run
-# Token automatically fetched from Lambda, cached to schwab/schwab_token.json
+python3 schwab/schwab_stop_loss.py
+# Token automatically fetched from Lambda on each run
 ```
 
-Subsequent runs reuse the cached token (refreshed every 5 minutes).
-
-Normal run / dry run:
+Normal run:
 ```bash
-python3 schwab/schwab_stop_loss.py --dry-run   # preview, no orders placed
-python3 schwab/schwab_stop_loss.py             # live
+python3 schwab/schwab_stop_loss.py             # live execution
 ```
 
-**Token endpoint:**
+**.env Configuration:**
+```env
+LAMBDA_TOKEN_ENDPOINT=https://hcapr4ndhwksq5dq7ird3yujpq0edbbt.lambda-url.us-east-1.on.aws/api/token/schwab
+LAMBDA_TOKEN_PASSWORD=6#10oz
+TELEGRAM_BOT_TOKEN=<your_bot_token>
+TELEGRAM_CHAT_ID=<your_chat_id>
 ```
-GET https://hcapr4ndhwksq5dq7ird3yujpq0edbbt.lambda-url.us-east-1.on.aws/api/token/schwab?pw=6%2310oz
 
-Response:
-{
-  "access_token": "<token_string>",
-  "token_type": "Bearer",
-  "expires_in": 1800
-}
-```
+**Important:** GET requests must NOT include `Content-Type: application/json` header, or Schwab API returns 400/500 errors. Only POST/DELETE include this header.
 
 ---
 
@@ -400,7 +395,8 @@ Response:
 | 2026-05-04 | Cron installed: 8:15 AM EDT (12:15 UTC) weekdays. |
 | 2026-05-04 | **[TOKEN BRANCH]** Switched to Lambda API token endpoint. No browser OAuth2 needed. Token cached locally (5-min TTL). |
 | 2026-05-05 | **[STOP BRANCH]** Only raise or create stops, never lower them. If SMA < current stop, leave unchanged. |
-| 2026-05-05 | **[STOP BRANCH]** Added Telegram notifications for all stop actions (raised, created, unchanged). |}]}}]}
+| 2026-05-05 | **[STOP BRANCH]** Added Telegram notifications for all stop actions (raised, created, unchanged). |
+| 2026-05-05 | **[STOPFIX BRANCH]** Fixed Schwab API HTTP header issue: GET requests must NOT include Content-Type. Switched to direct HTTP calls instead of schwab-py. Live execution verified: 2/5 stops created (AAOI, SNDK). |}]}}]}}]}
 
 ---
 
