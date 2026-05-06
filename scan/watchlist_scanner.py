@@ -229,7 +229,7 @@ def run_scan(tickers: list[str], dry_run: bool = False) -> tuple[list[dict], dic
             base = find_consolidation_base(df, base_anchor)
             if base is None:
                 # Not consolidating yet — check if it's a runner
-                runner = check_runner_state(df, universe, momentum)
+                runner = check_runner_state(df, universe, momentum, prior_move)
                 if runner is None:
                     return None
                 last        = df.iloc[-1]
@@ -368,9 +368,35 @@ def print_watchlist(watchlist: list[dict]) -> None:
 
 def main():
     parser = argparse.ArgumentParser(description="Daily Qullamaggie watchlist scanner")
-    parser.add_argument("--dry-run", action="store_true", help="Print results without writing to DB")
-    parser.add_argument("--ticker",  type=str, default=None, help="Scan a single ticker only")
+    parser.add_argument("--dry-run",     action="store_true", help="Print results without writing to DB")
+    parser.add_argument("--ticker",      type=str, default=None, help="Scan a single ticker only")
+    parser.add_argument("--schwab-only", action="store_true",
+                        help=(
+                            "Skip the yfinance fetch and scan entirely. "
+                            "Reads existing records from the DB and pushes them to Schwab watchlists. "
+                            "Useful for re-syncing after the scan has already run."
+                        ))
     args = parser.parse_args()
+
+    # ── --schwab-only: skip scan, go straight to Schwab sync ──────────────────
+    if args.schwab_only:
+        if not test_connection():
+            logger.error("Cannot connect to SQL Server.")
+            sys.exit(1)
+        try:
+            from schwab.schwab_watchlist_sync import sync_watchlists
+            result = sync_watchlists()
+            if result["scan_date"]:
+                print(f"\n  Schwab sync complete — {result['scan_date']}")
+                print(f"  {result['watch_name']}: {result['watch_count']} tickers")
+                print(f"  {result['runners_name']}: {result['runners_count']} tickers\n")
+            else:
+                logger.warning("No scan records found in DB — nothing synced.")
+                sys.exit(1)
+        except Exception as e:
+            logger.error(f"Schwab sync failed: {e}")
+            sys.exit(1)
+        return
 
     # Verify DB connection unless dry-run
     if not args.dry_run:
@@ -444,6 +470,19 @@ def main():
     else:
         print("  [DRY RUN] No data written to database.\n")
 
+    # ── Schwab watchlist sync ──────────────────────────────────────────────────
+    if not args.dry_run and not args.ticker:
+        try:
+            from schwab.schwab_watchlist_sync import sync_watchlists
+            wl_result = sync_watchlists()
+            logger.info(
+                f"Schwab watchlists created: "
+                f"{wl_result['watch_name']} ({wl_result['watch_count']} tickers), "
+                f"{wl_result['runners_name']} ({wl_result['runners_count']} tickers)"
+            )
+        except Exception as e:
+            logger.warning(f"Schwab watchlist sync failed (non-fatal): {e}")
+
     # Send Telegram notifications (always, even on dry-run)
     if not args.ticker:  # skip single-ticker test runs
         tg_stats = {
@@ -455,9 +494,13 @@ def main():
         }
         from datetime import date as _date
         scan_date_str = str(_date.today())
+
+        # Only notify A and A+ grade setups via Telegram
+        tg_watchlist = [e for e in watchlist if e.get("pattern_grade") in ("A+", "A")]
+
         sent = send_watchlist_summary(
             scan_date=scan_date_str,
-            results=watchlist,
+            results=tg_watchlist,
             stats=tg_stats,
         )
         if sent:

@@ -49,6 +49,24 @@ MIN_BASE_DAYS       = int(os.getenv("MIN_BASE_DAYS",    "5"))     # R11
 MAX_BASE_DAYS       = int(os.getenv("MAX_BASE_DAYS",    "40"))    # R11
 MAX_BASE_DEPTH_PCT  = float(os.getenv("MAX_BASE_DEPTH_PCT", "20.0")) # R12 — raised from 15% (2026-04-27)
 
+# ─── Runner Gates (added 2026-05-06) ─────────────────────────────────────────
+# Controls which Stage 1+2 stocks without a base qualify as runners.
+# Two tighter gates were added to reduce list noise and enforce the
+# Qullamaggie definition: actively marking up AND has a known catalyst.
+#
+# To revert both gates to the original looser behavior:
+#   RUNNER_REQUIRE_PRIOR_MOVE=false   in scan/.env  (removes prior-move requirement)
+#   MAX_RUNNER_FROM_20D_HIGH=15.0     in scan/.env  (restores original 15% proximity)
+
+MAX_RUNNER_FROM_20D_HIGH  = float(os.getenv("MAX_RUNNER_FROM_20D_HIGH",  "10.0"))
+# R_RUN1: Runner must be within 10% of its 20-day high (tightened from hardcoded 15%).
+# Rationale: stocks pulling back >10% have likely completed their immediate move.
+
+RUNNER_REQUIRE_PRIOR_MOVE = os.getenv("RUNNER_REQUIRE_PRIOR_MOVE", "true").lower() == "true"
+# R_RUN2: Runner must have a prior explosive move on record (Stage 2b).
+# Rationale: runners with no catalyst are generic momentum stocks, not high-conviction.
+# To disable: RUNNER_REQUIRE_PRIOR_MOVE=false in scan/.env
+
 # ─── Stage 4: Volume Contraction ──────────────────────────────────────────────
 MAX_BASE_VOL_RATIO      = float(os.getenv("MAX_BASE_VOL_RATIO",      "0.85")) # R19 — raised from 0.75 (2026-04-29: KLAC, MRVL, BKR etc. failing at 0.75)
 MIN_CONSEC_LOW_VOL_DAYS = int(os.getenv("MIN_CONSEC_LOW_VOL_DAYS",   "3"))    # R20

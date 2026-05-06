@@ -129,6 +129,7 @@ def check_runner_state(
     df: pd.DataFrame,
     universe: dict,
     momentum: dict,
+    prior_move: dict | None = None,
 ) -> dict | None:
     """
     Determine if a stock that passed Stage 1+2 but failed Stage 3 is in a
@@ -138,10 +139,21 @@ def check_runner_state(
     form a consolidation base.  Called only when find_consolidation_base()
     returns None.
 
+    Args:
+        prior_move: Result of find_prior_explosive_move() for this ticker.
+                    Used to enforce RUNNER_REQUIRE_PRIOR_MOVE gate (added 2026-05-06).
+                    Pass None if prior move was not computed.
+
     Returns runner detail dict, or None if the stock is not in markup phase.
     """
     last  = df.iloc[-1]
     price = universe["current_price"]
+
+    # R_RUN2: Require a prior explosive move (added 2026-05-06).
+    # Ensures runners have a known catalyst — not just generic momentum.
+    # To remove this gate: set RUNNER_REQUIRE_PRIOR_MOVE=false in scan/.env
+    if cfg.RUNNER_REQUIRE_PRIOR_MOVE and prior_move is None:
+        return None
 
     # Must be in clean uptrend: price > MA20 > MA50
     ma20 = float(last["ma20"]) if not pd.isna(last["ma20"]) else None
@@ -153,11 +165,14 @@ def check_runner_state(
     if ma20 < ma50:
         return None   # 20d MA crossed below 50d MA — trend broken
 
-    # Must be near recent high — still trending, not hard-pulling-back
+    # R_RUN1: Must be within MAX_RUNNER_FROM_20D_HIGH of recent high (added 2026-05-06,
+    # tightened from hardcoded 15% to cfg.MAX_RUNNER_FROM_20D_HIGH).
+    # Rationale: stocks pulling back further have likely completed their immediate move.
+    # To loosen: raise MAX_RUNNER_FROM_20D_HIGH in config.py or scan/.env
     high_20d = float(df["High"].tail(20).max())
     pct_from_20d_high = round(((high_20d - price) / high_20d * 100), 2) if high_20d > 0 else 0
-    if pct_from_20d_high > 15:
-        return None   # >15% off 20d high — pulling back too far, not a runner
+    if pct_from_20d_high > cfg.MAX_RUNNER_FROM_20D_HIGH:
+        return None
 
     return {
         "pct_from_52w_high": momentum["pct_from_52w_high"],

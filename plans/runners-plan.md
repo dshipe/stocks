@@ -31,14 +31,25 @@ SNDK passes S1 ✅  passes S2 ✅  fails S3 ❌  → captured as runner 🏃
 
 A stock makes the Runners list if it passes **Stage 1 + Stage 2** AND:
 
-| Check | Criterion | Rationale |
-|-------|-----------|-----------|
-| **Price > MA20** | Current price above 20-day MA | Still in uptrend, not breaking down |
-| **MA20 > MA50** | 20-day MA above 50-day MA | Trend structure intact |
-| **Near recent high** | Within 15% of 20-day high | Still trending up, not pulling back hard |
-| **No base detected** | Stage 3 fails — stock has NOT consolidated | Distinguishes runners from setups |
+| Check | Criterion | Config param | Rationale |
+|-------|-----------|--------------|-----------|
+| **Price > MA20** | Current price above 20-day MA | — | Still in uptrend, not breaking down |
+| **MA20 > MA50** | 20-day MA above 50-day MA | — | Trend structure intact |
+| **Near recent high** | Within `MAX_RUNNER_FROM_20D_HIGH`% of 20-day high | `MAX_RUNNER_FROM_20D_HIGH=10.0` | Still trending up, not pulling back hard (tightened from 15% on 2026-05-06) |
+| **Prior explosive move** | `find_prior_explosive_move()` must return a result | `RUNNER_REQUIRE_PRIOR_MOVE=true` | Ensures a known catalyst exists — not just generic momentum (added 2026-05-06) |
+| **No base detected** | Stage 3 fails — stock has NOT consolidated | — | Distinguishes runners from setups |
 
 Stocks that pass Stage 3 are NOT runners — they go to the main watchlist instead.
+
+### Reverting the 2026-05-06 runner gates
+
+Both gates are controlled via `scan/.env` — no code change needed to remove them:
+
+```bash
+# Restore original behavior (loose runner list):
+RUNNER_REQUIRE_PRIOR_MOVE=false   # removes prior-move requirement
+MAX_RUNNER_FROM_20D_HIGH=15.0     # restores original 15% proximity threshold
+```
 
 ---
 
