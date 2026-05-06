@@ -91,7 +91,11 @@ Base URL and auth are identical to `schwab_stop_loss.py`.
 
 ---
 
-## New File: `scan/schwab/schwab_watchlist_sync.py`
+## New File: `scan/schwab_scripts/schwab_watchlist_sync.py`
+
+> **Note (2026-05-06):** Directory renamed from `scan/schwab/` to `scan/schwab_scripts/` to avoid
+> import conflicts with the installed `schwab` (schwab-py) library. The module uses direct
+> `importlib.util` loading in `watchlist_scanner.py` to load from the scripts directory.
 
 ### Function outline
 
@@ -255,8 +259,8 @@ after a token refresh, or to fix a watchlist name without re-scanning.
 
 | File | Change |
 |------|--------|
-| `scan/schwab/schwab_watchlist_sync.py` | **New** — full sync module with `--dry-run` and `--date` CLI flags |
-| `scan/watchlist_scanner.py` | (1) `--schwab-only` flag — skips scan, syncs from DB and exits; (2) Schwab sync block after DB writes; (3) A/A+ filter before `send_watchlist_summary()` |
+| `scan/schwab_scripts/schwab_watchlist_sync.py` | **New** — full sync module with `--dry-run` and `--date` CLI flags |
+| `scan/watchlist_scanner.py` | (1) `--schwab-only` flag — skips scan, syncs from DB and exits; (2) Schwab sync block after DB writes; (3) A/A+ filter before `send_watchlist_summary()` (uses direct `importlib.util` import to load from `schwab_scripts/`) |
 | `scan/shared/telegram_notify.py` | No changes — filtering happens at the call site |
 
 No schema changes. No new dependencies (uses `requests`, `pyodbc`, `config` — all
@@ -266,13 +270,43 @@ already present).
 
 ## Running the Sync
 
+## Import Path Changes (2026-05-06)
+
+With the `scan/schwab/` → `scan/schwab_scripts/` rename, imports changed from:
+
+```python
+# Old (would conflict with installed schwab package)
+from schwab.schwab_watchlist_sync import sync_watchlists
+```
+
+To direct file loading:
+
+```python
+# New (in watchlist_scanner.py)
+import importlib.util
+spec = importlib.util.spec_from_file_location(
+    "schwab_watchlist_sync",
+    os.path.join(os.path.dirname(__file__), "schwab_scripts", "schwab_watchlist_sync.py")
+)
+sync_mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(sync_mod)
+result = sync_mod.sync_watchlists()
+```
+
+This avoids the namespace collision where Python would import the installed `schwab` package
+instead of the local module.
+
+---
+
+## Running the Sync
+
 | Command | What it does |
 |---------|-------------|
 | `python watchlist_scanner.py` | Full daily run — scan + DB write + Schwab sync + Telegram |
 | `python watchlist_scanner.py --schwab-only` | Skip scan; read existing DB records and push to Schwab |
-| `python schwab/schwab_watchlist_sync.py` | Standalone sync — latest scan date from DB |
-| `python schwab/schwab_watchlist_sync.py --date 2026-05-05` | Sync a specific past date |
-| `python schwab/schwab_watchlist_sync.py --dry-run` | Print what would be created; no API calls |
+| `python schwab_scripts/schwab_watchlist_sync.py` | Standalone sync — latest scan date from DB |
+| `python schwab_scripts/schwab_watchlist_sync.py --date 2026-05-05` | Sync a specific past date |
+| `python schwab_scripts/schwab_watchlist_sync.py --dry-run` | Print what would be created; no API calls |
 
 ---
 

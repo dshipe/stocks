@@ -27,6 +27,7 @@ import os
 sys.path.insert(0, os.path.dirname(__file__))
 
 import argparse
+import importlib.util
 import json
 import logging
 import threading
@@ -384,8 +385,15 @@ def main():
             logger.error("Cannot connect to SQL Server.")
             sys.exit(1)
         try:
-            from schwab.schwab_watchlist_sync import sync_watchlists
-            result = sync_watchlists()
+            # Import directly from schwab_scripts/ to avoid conflicts with installed schwab package
+            import importlib.util
+            spec = importlib.util.spec_from_file_location(
+                "schwab_watchlist_sync",
+                os.path.join(os.path.dirname(__file__), "schwab_scripts", "schwab_watchlist_sync.py")
+            )
+            sync_mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(sync_mod)
+            result = sync_mod.sync_watchlists()
             if result["scan_date"]:
                 print(f"\n  Schwab sync complete — {result['scan_date']}")
                 print(f"  {result['watch_name']}: {result['watch_count']} tickers")
@@ -473,8 +481,15 @@ def main():
     # ── Schwab watchlist sync ──────────────────────────────────────────────────
     if not args.dry_run and not args.ticker:
         try:
-            from schwab.schwab_watchlist_sync import sync_watchlists
-            wl_result = sync_watchlists()
+            # Import directly from schwab_scripts/ to avoid conflicts with installed schwab package
+            import importlib.util
+            spec = importlib.util.spec_from_file_location(
+                "schwab_watchlist_sync",
+                os.path.join(os.path.dirname(__file__), "schwab_scripts", "schwab_watchlist_sync.py")
+            )
+            sync_mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(sync_mod)
+            wl_result = sync_mod.sync_watchlists()
             logger.info(
                 f"Schwab watchlists created: "
                 f"{wl_result['watch_name']} ({wl_result['watch_count']} tickers), "
