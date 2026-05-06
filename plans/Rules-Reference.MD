@@ -3,7 +3,7 @@
 > All rules in order, R1 through R46, with thresholds used in the scanner.
 > Full explanations: `Rules.MD` | Implementation: `scan/shared/criteria.py` | Config: `scan/config.py`
 >
-> **🔧 Modified rules:** R6 (prior move % and lookback window), R19 (volume contraction ratio) — see [Criteria Change Log](#criteria-change-log) below.
+> **🔧 Modified rules:** R6 (prior move % and lookback window), R19 (volume contraction ratio), R_RUN1/R_RUN2 (runner gates tightened 2026-05-06) — see [Criteria Change Log](#criteria-change-log) below.
 
 ---
 
@@ -147,6 +147,8 @@ R43–R46  Market Filter        → S&P above MAs, low VIX, sector uptrend
 | 2026-04-30 | Stage 3 failure handling | Stock silently dropped | **Runners list** — `check_runner_state()` captures markup-phase stocks in `runner_entries` | SNDK, WDC pass S1+S2 but have no base; now tracked as runners until they consolidate |
 | 2026-04-30 | Runner performance | Not tracked | `runner_performance` table — 1d/5d/10d/20d/60d outcomes + `did_set_up` + `days_to_setup` | Mirrors watchlist_performance; enables analysis of how long runners take to set up |
 | 2026-04-30 | Breakout scanner scope | Watchlist only | **Watchlist + Runners** — `check_runner_breakout()` detects intraday base formation on runner stocks | Catches same-day runner→base→breakout transitions the 8 AM scan would miss |
+| 2026-05-06 | Runner 20d-high proximity | Within **15%** of 20-day high (hardcoded) | Within **10%** of 20-day high (`MAX_RUNNER_FROM_20D_HIGH=10.0`) | Stocks >10% below their 20d high have likely completed their immediate move; 15% was too permissive. To revert: `MAX_RUNNER_FROM_20D_HIGH=15.0` in `scan/.env` |
+| 2026-05-06 | Runner prior-move gate | Not required (prior move was bonus-only) | **Required** for runners (`RUNNER_REQUIRE_PRIOR_MOVE=true`) | Runners with no prior explosive move are generic momentum stocks, not the high-conviction catalyst-driven setups Qullamaggie targets. To revert: `RUNNER_REQUIRE_PRIOR_MOVE=false` in `scan/.env` |
 
 ---
 
