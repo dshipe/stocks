@@ -532,7 +532,7 @@ def check_breakout(intraday: dict, base: dict, avg_vol_20d: float) -> dict | Non
     if avg_30min_vol <= 0:
         return None
     volume_ratio = last_30min_vol / avg_30min_vol if avg_30min_vol > 0 else 0
-    if volume_ratio < 3.0:  # Require 3x intensity in the current 30-min candle
+    if volume_ratio < cfg.MIN_BREAKOUT_30MIN_VOL_RATIO:  # R24: last 30-min candle >= 3x avg 30-min vol
         return None
 
     # R25: Price must be close to session high (strong candle — not reversing)
