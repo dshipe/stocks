@@ -580,14 +580,49 @@ UTC-4 offset (EDT), which is incorrect during Eastern Standard Time (UTC-5, Nov�
 function in `data_fetcher.py` uses `pytz.timezone("America/New_York")` which automatically
 handles DST transitions. The UTC-4 fallback remains as a last resort.
 
-### 6. S&P 500 Context Fetch Overhead
-**Issue:** `get_sp500_context()` fetches 250 days of SPY data on every 30-minute run,
-adding ~2 seconds of latency per scan cycle.
+### 6. S&P 500 Context Fetch Overhead (RESOLVED 2026-05-07)
+**Issue:** `get_sp500_context()` was fetching 250 days of SPY data on every 30-minute run,
+adding ~2 seconds of latency per scan cycle AND happening 163+ times per scan (once per stock).
 
-**Mitigation:** SPY data is fetched once per run and reused for all tickers. Future
-optimisation: cache SPY context to disk with a 4-hour TTL to avoid repeated fetches.
+**Resolution:** SPY context is now cached in memory for 5 minutes (`_sp500_context_cache`).
+Each 30-minute scan run fetches SPY once and reuses it for all 163 stocks, reducing
+latency by ~150+ seconds (2 seconds × 163 stocks).
 
-### 7. Runner Breakout Detection Added (2026-04-30)
+### 7. Batch Data Fetching (NEW 2026-05-07)
+**OPTIMIZATION:** Pre-fetch all watchlist + runner tickers before processing loop.
+
+**Before (sequential):** Each stock triggered multiple API calls in its own loop iteration:
+```python
+for ticker in watchlist:  # 85 stocks
+    df = fetch_history(ticker, days=60)      # API call #1
+    intraday = fetch_intraday(ticker)        # API call #2
+    sp500 = get_sp500_context()              # API call #3 (redundant 85 times!)
+    # ... process ...
+```
+Total per scan: ~255 API calls (85×3), plus another ~234 for 78 runners.
+**Grand total: ~489 API calls per 30-minute scan.**
+
+**After (batch):** Pre-fetch all tickers before loop:
+```python
+# Pre-fetch phase (once per scan)
+for ticker in all_tickers:  # 163 stocks
+    histories[ticker] = fetch_history(ticker, days=60)   # ~163 calls
+    intradays[ticker] = fetch_intraday(ticker)           # ~163 calls
+sp500_ctx = get_sp500_context()                          # 1 call (cached 5 min)
+
+# Processing phase (use cached data — no API calls)
+for ticker in watchlist:  # 85 stocks
+    result = check_ticker_breakout(entry, histories, intradays, sp500_ctx)  # cached
+```
+Total per scan: ~327 API calls (163+163+1).
+**Improvement: ~35% fewer API calls (489 → 327).**
+
+**Benefits:**
+- Faster scan completion (fewer API round trips)
+- Lower Yahoo Finance rate-limit risk (429 errors less frequent)
+- Consistent market context across all stocks (single SPY fetch used for all)
+
+### 8. Runner Breakout Detection Added (2026-04-30)
 **Change:** The breakout scanner now also scans `runner_entries` (stocks in markup with no
 base yet) via `check_runner_breakout()`. If a runner forms a base intraday and immediately
 breaks out, the scanner catches it — something the 8 AM watchlist scan would miss entirely.
@@ -598,6 +633,7 @@ This means the breakout scanner checks two sources on each 30-minute run:
 
 ---
 
-*Last updated: 2026-04-30*
+*Last updated: 2026-05-07 (batch data fetching + SPY cache optimization)*
 *Based on: `qullamaggie/breakouts/Rules.MD`, `qullamaggie/breakouts/Summary.MD`, `qullamaggie/breakouts/vcp_setup.MD`*
 *Implemented: 2026-04-27 on Ubuntu 24.04 AWS EC2, Python 3.12, SQL Server 2016*
+*Optimizations: 2026-05-07 — batch fetching + SPY caching (35% API call reduction)*
