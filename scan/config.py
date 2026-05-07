@@ -75,8 +75,11 @@ MIN_CONSEC_LOW_VOL_DAYS = int(os.getenv("MIN_CONSEC_LOW_VOL_DAYS",   "3"))    # 
 MAX_DIST_FROM_PIVOT_PCT = float(os.getenv("MAX_DIST_FROM_PIVOT_PCT", "8.0"))  # within 8% of pivot (raised from 5% on 2026-04-29: SNDK was 6.4% away and excluded)
 
 # ─── Stage 5: Breakout Confirmation ───────────────────────────────────────────
-MIN_BREAKOUT_VOL_RATIO  = float(os.getenv("MIN_BREAKOUT_VOL_RATIO",  "1.25")) # R24 — 125% of avg (lowered from 150% 2026-05-07)
-MAX_CLOSE_FROM_HIGH_PCT = float(os.getenv("MAX_CLOSE_FROM_HIGH_PCT", "5.0"))  # R25 — close within 5% of candle high
+# R24 (updated 2026-05-07): Now checks last 30-min candle intensity, not cumulative daily volume.
+# At 10:00 AM you cannot know if the day will finish at 1.25x daily avg - use intraday intensity instead.
+MIN_BREAKOUT_30MIN_VOL_RATIO = float(os.getenv("MIN_BREAKOUT_30MIN_VOL_RATIO", "3.0"))  # R24 - last 30-min candle >= 3x avg 30-min volume
+MIN_BREAKOUT_VOL_RATIO  = float(os.getenv("MIN_BREAKOUT_VOL_RATIO",  "1.25")) # legacy - kept for reference, not used in check_breakout()
+MAX_CLOSE_FROM_HIGH_PCT = float(os.getenv("MAX_CLOSE_FROM_HIGH_PCT", "5.0"))  # R25 - close within 5% of candle high
 
 # ─── Notifications (optional) ─────────────────────────────────────────────────
 TWILIO_SID      = os.getenv("TWILIO_SID",   "")

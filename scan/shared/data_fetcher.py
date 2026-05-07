@@ -214,16 +214,21 @@ def fetch_history(ticker: str, days: int = 365) -> pd.DataFrame | None:
 
 def fetch_intraday(ticker: str) -> dict | None:
     """
-    Fetch today's intraday data for a ticker.
+    Fetch today's intraday data for a ticker (1-minute candles).
 
     Returns a dict with:
-        current_price   — latest trade price
-        intraday_high   — session high so far
-        intraday_low    — session low so far
-        cum_volume      — cumulative shares traded today
-        candle_close_pct — how close current price is to session high (%)
+        current_price       — latest trade price
+        intraday_high       — session high so far
+        intraday_low        — session low so far
+        cum_volume          — cumulative shares traded today
+        candle_close_pct    — how close current price is to session high (%)
+        last_30min_volume   — volume in the most recent 30-min candle
+        avg_30min_volume    — average volume per 30-min period (across trading hours)
 
     Returns None on failure or if market is not open.
+    
+    **OPTIMIZATION (2026-05-07):** Added 30-min volume metrics to check intraday intensity
+    instead of cumulative daily volume, which is unknown at 10:00 AM.
     """
     try:
         tk = yf.Ticker(ticker)
@@ -243,12 +248,25 @@ def fetch_intraday(ticker: str) -> dict | None:
         else:
             candle_close_pct = 999.0
 
+        # ── 30-min volume metrics (for intraday intensity check) ──────────────────────
+        # Resample 1-min candles to 30-min bars to check recent volume intensity
+        df_30m = df.resample("30T").agg({"Volume": "sum"})
+        df_30m = df_30m[df_30m["Volume"] > 0]  # only trading periods
+        
+        last_30min_volume = 0
+        avg_30min_volume = 0
+        if not df_30m.empty:
+            last_30min_volume = int(df_30m["Volume"].iloc[-1])
+            avg_30min_volume = int(df_30m["Volume"].mean())
+
         return {
-            "current_price":   current_price,
-            "intraday_high":   intraday_high,
-            "intraday_low":    intraday_low,
-            "cum_volume":      cum_volume,
-            "candle_close_pct": candle_close_pct,
+            "current_price":       current_price,
+            "intraday_high":       intraday_high,
+            "intraday_low":        intraday_low,
+            "cum_volume":          cum_volume,
+            "candle_close_pct":    candle_close_pct,
+            "last_30min_volume":   last_30min_volume,
+            "avg_30min_volume":    avg_30min_volume,
         }
     except Exception as e:
         logger.debug(f"fetch_intraday({ticker}): {e}")

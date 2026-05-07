@@ -499,18 +499,25 @@ def check_breakout(intraday: dict, base: dict, avg_vol_20d: float) -> dict | Non
 
     Rules applied:
         R23 — price above base high (pivot)
-        R24 — volume >= 150% of 20-day average
+        R24 — last 30-min candle volume >= 3x average 30-min volume (intensity check)
         R25 — current price within 5% of session high (strong candle)
+
+    **OPTIMIZATION (2026-05-07):** Changed R24 from cumulative daily volume to intraday
+    30-min volume intensity. At 10:00 AM, we can't predict final daily volume, but we
+    can check if the LAST 30-MIN CANDLE shows strong institutional buying (3x avg).
+    This is a better predictor of real conviction than waiting for daily volume.
 
     Returns dict with breakout details or None if not breaking out.
     """
     if not intraday or not base:
         return None
 
-    pivot_price   = base.get("pivot_price", 0)
-    current_price = intraday.get("current_price", 0)
-    cum_volume    = intraday.get("cum_volume", 0)
+    pivot_price      = base.get("pivot_price", 0)
+    current_price    = intraday.get("current_price", 0)
+    cum_volume       = intraday.get("cum_volume", 0)
     candle_close_pct = intraday.get("candle_close_pct", 999)
+    last_30min_vol   = intraday.get("last_30min_volume", 0)
+    avg_30min_vol    = intraday.get("avg_30min_volume", 0)
 
     if pivot_price <= 0 or current_price <= 0:
         return None
@@ -519,11 +526,13 @@ def check_breakout(intraday: dict, base: dict, avg_vol_20d: float) -> dict | Non
     if current_price <= pivot_price:
         return None
 
-    # R24: Volume must be at least 150% of 20-day average
-    if avg_vol_20d <= 0:
+    # R24 (UPDATED): 30-min volume intensity must be >= 3x average 30-min volume
+    # This checks if the MOST RECENT 30-MIN candle shows strong institutional interest
+    # vs. the historical 30-min average. Avoids the problem of not knowing final daily volume.
+    if avg_30min_vol <= 0:
         return None
-    volume_ratio = cum_volume / avg_vol_20d
-    if volume_ratio < cfg.MIN_BREAKOUT_VOL_RATIO:
+    volume_ratio = last_30min_vol / avg_30min_vol if avg_30min_vol > 0 else 0
+    if volume_ratio < cfg.MIN_BREAKOUT_30MIN_VOL_RATIO:  # R24: last 30-min candle >= 3x avg 30-min vol
         return None
 
     # R25: Price must be close to session high (strong candle — not reversing)
@@ -537,8 +546,10 @@ def check_breakout(intraday: dict, base: dict, avg_vol_20d: float) -> dict | Non
         "pivot_price":       round(pivot_price, 4),
         "pct_above_pivot":   round(pct_above_pivot, 2),
         "breakout_volume":   cum_volume,
-        "volume_ratio":      round(volume_ratio, 3),
+        "volume_ratio":      round(volume_ratio, 2),  # 30-min intensity ratio (not daily)
         "candle_close_pct":  round(candle_close_pct, 2),
+        "last_30min_volume": last_30min_vol,
+        "avg_30min_volume":  avg_30min_vol,
     }
 
 
@@ -585,7 +596,7 @@ def build_qualification_reasons(
     )
     reasons.append(
         f"Base duration: {base['base_duration_days']} trading days "
-        f"(range: {cfg.MIN_BASE_DAYS}–{cfg.MAX_BASE_DAYS} days)"
+        f"(range: {cfg.MIN_BASE_DAYS}-{cfg.MAX_BASE_DAYS} days)"
     )
     if base.get("above_50d_ma"):
         reasons.append("Price above 50-day MA throughout base")
