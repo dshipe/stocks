@@ -28,13 +28,19 @@ Based on Stages 5–8 of `qullamaggie/breakouts/Rules.MD`:
 | Rule | Criterion |
 |------|-----------|
 | R23 | Price has broken above the high of the consolidation base (pivot price) |
-| R24 | Breakout volume ≥ 125% of 20-day average volume (lowered from 150% on 2026-05-07; SNDK failed at 1.30x) |
+| R24 | Last 30-min candle volume ≥ 3x average 30-min volume — intraday intensity check (changed 2026-05-07; see note below) |
 | R25 | Breakout candle closes within 5% of its high (strong close) |
 
 > **Note:** R6–R10 (prior move), R11–R12 (base depth/duration), and R19 (volume contraction)
 > are **setup criteria** evaluated by the watchlist scanner at 8 AM — not re-checked intraday.
 > Since 2026-04-29 they are also bonus grading signals, not hard gates. A stock on the
 > watchlist already satisfied Stage 1+2+3 before the market opened.
+>
+> **R24 Note (2026-05-07):** The original R24 checked cumulative daily volume ≥ 1.25x the 20-day
+> average. This is flawed — at 10:00 AM (30 min into session) you cannot know if the day will
+> finish at 1.25x daily average. Instead, R24 now checks whether the **most recent 30-min candle**
+> had volume ≥ 3x the average 30-min volume. This measures real-time institutional buying intensity
+> rather than extrapolating final daily volume from a partial session.
 
 ### Preferred (Adds Confidence)
 | Rule | Criterion |
@@ -588,7 +594,7 @@ adding ~2 seconds of latency per scan cycle AND happening 163+ times per scan (o
 Each 30-minute scan run fetches SPY once and reuses it for all 163 stocks, reducing
 latency by ~150+ seconds (2 seconds × 163 stocks).
 
-### 7. Batch Data Fetching (NEW 2026-05-07)
+### 7. Batch Data Fetching (2026-05-07)
 **OPTIMIZATION:** Pre-fetch all watchlist + runner tickers before processing loop.
 
 **Before (sequential):** Each stock triggered multiple API calls in its own loop iteration:
@@ -622,7 +628,39 @@ Total per scan: ~327 API calls (163+163+1).
 - Lower Yahoo Finance rate-limit risk (429 errors less frequent)
 - Consistent market context across all stocks (single SPY fetch used for all)
 
-### 8. Runner Breakout Detection Added (2026-04-30)
+### 9. R24 Volume Check Redesign — 30-min Intensity (2026-05-07)
+**Problem:** Original R24 checked `cum_volume / avg_vol_20d >= 1.25`. At 10:00 AM
+(only 30 minutes into the session), cumulative volume is ~1/13th of the daily total.
+This makes the check almost impossible to pass early in the day — and even if it does
+pass, it doesn't mean the final day will hit 1.25x.
+
+**Solution (Option 2 — 30-min intensity):** Instead of comparing partial-day cumulative
+volume to a full-day average, check if the **most recent 30-min candle** shows 3x the
+average 30-min volume:
+
+```python
+# In data_fetcher.py — fetch_intraday()
+df_30m = df.resample("30T").agg({"Volume": "sum"})
+last_30min_volume = int(df_30m["Volume"].iloc[-1])
+avg_30min_volume  = int(df_30m["Volume"].mean())
+
+# In criteria.py — check_breakout()
+volume_ratio = last_30min_vol / avg_30min_vol
+if volume_ratio < 3.0:
+    return None  # R24 fail
+```
+
+**Why 3x?** The 30-min average includes slow periods (lunch, late afternoon). A genuine
+breakout on institutional buying should stand out clearly — 3x the typical 30-min bar
+is a meaningful signal at any time of day.
+
+**Benefits:**
+- Works at 10:00 AM, 2:00 PM, or any time — no time-of-day bias
+- Measures **current buying intensity**, not projected daily total
+- More aligned with how breakout traders actually read volume (candle-by-candle)
+- `volume_ratio` in breakout_entries now reflects 30-min intensity ratio (not daily)
+
+### 10. Runner Breakout Detection Added (2026-04-30)
 **Change:** The breakout scanner now also scans `runner_entries` (stocks in markup with no
 base yet) via `check_runner_breakout()`. If a runner forms a base intraday and immediately
 breaks out, the scanner catches it — something the 8 AM watchlist scan would miss entirely.
@@ -633,7 +671,7 @@ This means the breakout scanner checks two sources on each 30-minute run:
 
 ---
 
-*Last updated: 2026-05-07 (batch data fetching + SPY cache optimization)*
+*Last updated: 2026-05-07 (R24 redesign — 30-min volume intensity; batch fetching + SPY cache)*
 *Based on: `qullamaggie/breakouts/Rules.MD`, `qullamaggie/breakouts/Summary.MD`, `qullamaggie/breakouts/vcp_setup.MD`*
 *Implemented: 2026-04-27 on Ubuntu 24.04 AWS EC2, Python 3.12, SQL Server 2016*
-*Optimizations: 2026-05-07 — batch fetching + SPY caching (35% API call reduction)*
+*Optimizations: 2026-05-07 — R24 30-min intensity check; batch fetching + SPY caching (35% API call reduction)*
