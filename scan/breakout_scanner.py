@@ -45,6 +45,7 @@ from shared.criteria import (
     find_consolidation_base,
     check_volume_contraction,
     check_breakout,
+    check_adr_breakout,
     build_qualification_reasons,
     detect_pattern_type,
     grade_setup,
@@ -141,6 +142,71 @@ def send_notification(ticker: str, breakout: dict, entry: dict) -> None:
         logger.warning(f"Twilio SMS failed for {ticker}: {e}")
 
 
+# ─── ADR Breakout Entry Builder ────────────────────────────────────────────────
+
+def _build_adr_breakout_entry(ticker: str, adr_result: dict, df,
+                               sp500_context: dict,
+                               watchlist_entry_id=None,
+                               was_on_watchlist: bool = False,
+                               source: str = "adr") -> dict:
+    """
+    Build the DB entry dict for an ADR-based breakout (parallel path).
+    Base/pivot fields are None since there is no consolidation base.
+    volume_ratio reflects last 30-min candle intensity (same approach as R24).
+    """
+    import pandas as pd
+    last = df.iloc[-1]
+    avg_vol_20d = float(last["avg_vol_20d"]) if not pd.isna(last["avg_vol_20d"]) else 0
+    atr_14      = float(last["atr_14"])      if not pd.isna(last["atr_14"])      else None
+
+    breakout_price = adr_result["breakout_price"]
+    # Conservative stop: 1 ATR below current price (no base low available)
+    stop_price     = round(breakout_price - atr_14, 4) if atr_14 else round(breakout_price * 0.95, 4)
+    risk_per_share = round(breakout_price - stop_price, 4)
+    rr_ratio       = round((breakout_price * 0.15) / risk_per_share, 2) if risk_per_share > 0 else 0
+
+    return {
+        "scan_date":                date.today(),
+        "ticker":                   ticker,
+        "breakout_price":           breakout_price,
+        "pivot_price":              adr_result["pivot_price"],   # prev close
+        "breakout_volume":          adr_result["breakout_volume"],
+        "avg_volume_20d":           int(avg_vol_20d),
+        "volume_ratio":             adr_result["volume_ratio"],  # 30-min intensity ratio
+        "candle_close_pct":         adr_result["candle_close_pct"],
+        "prior_move_pct":           None,
+        "prior_move_days":          None,
+        "base_depth_pct":           None,
+        "base_duration_days":       None,
+        "volume_contraction_ratio": None,
+        "adr_pct":                  adr_result["adr_pct"],
+        "avg_daily_volume":         int(avg_vol_20d),
+        "ma10_above_ma20":          None,
+        "above_50d_ma":             None,
+        "stop_price":               stop_price,
+        "atr_14":                   atr_14,
+        "risk_per_share":           risk_per_share,
+        "suggested_rr_ratio":       rr_ratio,
+        "pattern_type":             "ADR_MOMENTUM",
+        "pattern_grade":            f"{adr_result['adr_mult']:.1f}x ADR",
+        "is_episodic_pivot":        False,
+        "catalyst_notes":           None,
+        "sp500_above_50d_ma":       sp500_context.get("sp500_above_50d_ma"),
+        "sp500_above_200d_ma":      sp500_context.get("sp500_above_200d_ma"),
+        "vix_level":                None,
+        "sector_trend":             None,
+        "qualification_reasons":    f'["ADR momentum: +{adr_result["pct_above_pivot"]:.1f}% '
+                                    f'({adr_result["adr_mult"]:.1f}x ADR={adr_result["adr_pct"]:.1f}%) '
+                                    f'on {adr_result["volume_ratio"]:.1f}x avg 30-min volume"]',
+        "was_on_watchlist":         was_on_watchlist,
+        "watchlist_entry_id":       watchlist_entry_id,
+        # Display-only
+        "_pct_above_pivot":         adr_result["pct_above_pivot"],
+        "_source":                  source,
+        "_adr_mult":                adr_result["adr_mult"],
+    }
+
+
 # ─── Main Scanner (uses pre-fetched data) ──────────────────────────────────────
 
 def check_ticker_breakout(watchlist_entry: dict, 
@@ -172,7 +238,15 @@ def check_ticker_breakout(watchlist_entry: dict,
     # Reconstruct base from daily data for breakout check
     prior_move = find_prior_explosive_move(df)
     if prior_move is None:
-        return None
+        # Base-pivot path unavailable — try ADR momentum path instead
+        adr_result = check_adr_breakout(intraday, df)
+        if adr_result is None:
+            return None
+        return _build_adr_breakout_entry(
+            ticker, adr_result, df, sp500_context,
+            watchlist_entry_id=watchlist_entry.get("watchlist_entry_id"),
+            was_on_watchlist=True, source="watchlist-adr",
+        )
 
     base = find_consolidation_base(df, prior_move["peak_date"])
     if base is None:
@@ -182,7 +256,15 @@ def check_ticker_breakout(watchlist_entry: dict,
                     "base_depth_pct": 8, "base_duration_days": 10,
                     "above_50d_ma": True, "ma10_above_ma20": True}
         else:
-            return None
+            # No stored pivot — try ADR momentum path
+            adr_result = check_adr_breakout(intraday, df)
+            if adr_result is None:
+                return None
+            return _build_adr_breakout_entry(
+                ticker, adr_result, df, sp500_context,
+                watchlist_entry_id=watchlist_entry.get("watchlist_entry_id"),
+                was_on_watchlist=True, source="watchlist-adr",
+            )
 
     # Override pivot with watchlist value if available (more accurate at 8 AM)
     if pivot_price:
@@ -276,11 +358,25 @@ def check_runner_breakout(runner_entry: dict,
 
     prior_move = find_prior_explosive_move(df)
     if prior_move is None:
-        return None
+        # Base-pivot path unavailable — try ADR momentum path
+        adr_result = check_adr_breakout(intraday, df)
+        if adr_result is None:
+            return None
+        return _build_adr_breakout_entry(
+            ticker, adr_result, df, sp500_context,
+            watchlist_entry_id=None, was_on_watchlist=False, source="runner-adr",
+        )
 
     base = find_consolidation_base(df, prior_move["peak_date"])
     if base is None:
-        return None  # Still running — no base formed yet
+        # Still running — no base formed yet; try ADR momentum path
+        adr_result = check_adr_breakout(intraday, df)
+        if adr_result is None:
+            return None
+        return _build_adr_breakout_entry(
+            ticker, adr_result, df, sp500_context,
+            watchlist_entry_id=None, was_on_watchlist=False, source="runner-adr",
+        )
 
     breakout = check_breakout(intraday, base, avg_vol_20d)
     if breakout is None:
@@ -407,12 +503,16 @@ def main():
         try:
             result = check_ticker_breakout(entry, histories, intradays, sp500_ctx)
             if result:
-                result["_source"] = "watchlist"
+                if "_source" not in result:
+                    result["_source"] = "watchlist"
                 new_breakouts.append(result)
+                is_adr = result["_source"].endswith("-adr")
+                tag    = "📈 BREAKOUT [WL-ADR]" if is_adr else "✅ BREAKOUT [WL]   "
+                extra  = f" | {result['_adr_mult']:.1f}x ADR" if is_adr else ""
                 print(
-                    f"  ✅ BREAKOUT [WL]: {ticker:<6} "
+                    f"  {tag}: {ticker:<6} "
                     f"${result['breakout_price']:.2f} | Vol {result['volume_ratio']:.1f}x | "
-                    f"+{result['_pct_above_pivot']:.1f}% | {result['pattern_type']}/{result['pattern_grade']}"
+                    f"+{result['_pct_above_pivot']:.1f}%{extra} | {result['pattern_type']}/{result['pattern_grade']}"
                 )
                 if not args.dry_run:
                     row_id = insert_breakout_entry({k: v for k, v in result.items() if not k.startswith("_")})
@@ -437,10 +537,13 @@ def main():
             result = check_runner_breakout(entry, histories, intradays, sp500_ctx)
             if result:
                 new_breakouts.append(result)
+                is_adr = result.get("_source", "").endswith("-adr")
+                tag    = "📈 BREAKOUT [RN-ADR]" if is_adr else "🏃 BREAKOUT [RN]   "
+                extra  = f" | {result['_adr_mult']:.1f}x ADR" if is_adr else " (runner)"
                 print(
-                    f"  🏃 BREAKOUT [RN]: {ticker:<6} "
+                    f"  {tag}: {ticker:<6} "
                     f"${result['breakout_price']:.2f} | Vol {result['volume_ratio']:.1f}x | "
-                    f"+{result['_pct_above_pivot']:.1f}% | {result['pattern_type']}/{result['pattern_grade']} (runner)"
+                    f"+{result['_pct_above_pivot']:.1f}% | {result['pattern_type']}/{result['pattern_grade']}{extra}"
                 )
                 if not args.dry_run:
                     row_id = insert_breakout_entry({k: v for k, v in result.items() if not k.startswith("_")})
