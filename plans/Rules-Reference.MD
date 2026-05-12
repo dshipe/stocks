@@ -33,8 +33,11 @@
 | **R21** | Volume | Distribution days | No high-vol down days (last 5) | No high-vol down days (last 5) | | — |
 | **R22** | Volume | Volume profile | Declining as base narrows | Declining as base narrows | | — |
 | **R23** | Breakout | Price trigger | Above consolidation high (pivot) | Above consolidation high (pivot) | | ✅ |
-| **R24** | Breakout | Breakout volume | ≥ 150% of 20-day avg | ≥ 150% of 20-day avg | | ✅ |
+| **R24** | Breakout | Breakout volume | ≥ 150% of 20-day avg | ≥ 300% of avg 30-min candle volume (intensity) | 🔧 2026-05-07 | ✅ |
 | **R25** | Breakout | Candle strength | Closes within 5% of candle high | Closes within 5% of candle high | | ✅ |
+| **ADR1** | ADR Breakout | Intraday move | — | ≥ 0.5× ADR% from prev close (parallel path) | 🔧 2026-05-11 | ✅ |
+| **ADR2** | ADR Breakout | Volume | — | Last 30-min candle ≥ 2× avg 30-min vol (same approach as R24) | 🔧 2026-05-11 | ✅ |
+| **ADR3** | ADR Breakout | Candle strength | — | Closes within 5% of session high (shared with R25) | 🔧 2026-05-11 | ✅ |
 | **R26** | Breakout | Earnings proximity | No earnings within 3 days | No earnings within 3 days | | — |
 | **R27** | Breakout | Market trend | S&P 500 / NASDAQ uptrend | S&P 500 / NASDAQ uptrend | | ✅ |
 | **R28** | Breakout | Intraday entry | Break of Opening Range High | Break of Opening Range High | | — |
@@ -90,8 +93,11 @@ Modify in `scan/config.py` or override via `scan/.env`:
 | `MAX_BASE_VOL_RATIO` | **60%** | **75%** | R19 | 🔧 2026-04-27 |
 | `MIN_CONSEC_LOW_VOL_DAYS` | 3 | 3 | R20 | |
 | `MAX_DIST_FROM_PIVOT_PCT` | 5% | **8%** | Watchlist trigger | 🔧 2026-04-29 |
-| `MIN_BREAKOUT_VOL_RATIO` | 1.5× | 1.5× | R24 | |
-| `MAX_CLOSE_FROM_HIGH_PCT` | 5% | 5% | R25 | |
+| `MIN_BREAKOUT_30MIN_VOL_RATIO` | — | **3.0×** | R24 (30-min intensity) | 🔧 2026-05-07 |
+| `MIN_BREAKOUT_VOL_RATIO` | 1.5× | 1.5× | R24 (legacy ref only) | |
+| `MAX_CLOSE_FROM_HIGH_PCT` | 5% | 5% | R25 / ADR3 | |
+| `MIN_ADR_BREAKOUT_MULT` | — | **0.5×** | ADR1 | 🔧 2026-05-11 |
+| `MIN_ADR_BREAKOUT_30MIN_VOL_RATIO` | — | **2.0×** | ADR2 (30-min intensity) | 🔧 2026-05-11 |
 
 ---
 
@@ -110,7 +116,9 @@ R19–R22  Volume Contraction      → bonus grading only, not a gate (🔧 demo
     ↓
          Watchlist Trigger       → within 8% of pivot → add to watchlist (🔧 was 5%)
     ↓
-R23–R28  Breakout             → price > pivot + volume ≥ 1.5× avg + strong candle
+R23–R28  Breakout (base-pivot) → price > pivot + 30-min vol ≥ 3× avg + strong candle
+ADR1–3   Breakout (ADR path)  → move ≥ 0.5× ADR% from prev close + 30-min vol ≥ 2× avg 30-min + near session high
+         (both paths run in parallel; base-pivot takes precedence if both fire)
     ↓
 R29–R35  Position Sizing      → stop below base low, 0.5% account risk, ≥2:1 R/R
     ↓
@@ -146,11 +154,4 @@ R43–R46  Market Filter        → S&P above MAs, low VIX, sector uptrend
 | 2026-04-30 | `bulk_fetch_history` single-ticker batch | `raw.copy()` (flat DF assumed) | `raw[ticker].copy()` always | yfinance ≥1.x returns MultiIndex even for 1-ticker batches; caused silent skip of SNDK, WDC, and any `--ticker` run |
 | 2026-04-30 | Stage 3 failure handling | Stock silently dropped | **Runners list** — `check_runner_state()` captures markup-phase stocks in `runner_entries` | SNDK, WDC pass S1+S2 but have no base; now tracked as runners until they consolidate |
 | 2026-04-30 | Runner performance | Not tracked | `runner_performance` table — 1d/5d/10d/20d/60d outcomes + `did_set_up` + `days_to_setup` | Mirrors watchlist_performance; enables analysis of how long runners take to set up |
-| 2026-04-30 | Breakout scanner scope | Watchlist only | **Watchlist + Runners** — `check_runner_breakout()` detects intraday base formation on runner stocks | Catches same-day runner→base→breakout transitions the 8 AM scan would miss |
-| 2026-05-06 | Runner 20d-high proximity | Within **15%** of 20-day high (hardcoded) | Within **10%** of 20-day high (`MAX_RUNNER_FROM_20D_HIGH=10.0`) | Stocks >10% below their 20d high have likely completed their immediate move; 15% was too permissive. To revert: `MAX_RUNNER_FROM_20D_HIGH=15.0` in `scan/.env` |
-| 2026-05-06 | Runner prior-move gate | Not required (prior move was bonus-only) | **Required** for runners (`RUNNER_REQUIRE_PRIOR_MOVE=true`) | Runners with no prior explosive move are generic momentum stocks, not the high-conviction catalyst-driven setups Qullamaggie targets. To revert: `RUNNER_REQUIRE_PRIOR_MOVE=false` in `scan/.env` |
-
----
-
-*Source: `qullamaggie/breakouts/Rules.MD`*
-*Last updated: 2026-04-30*
+| 2026-04-30 | Breakout scanner scope | Watchlist only | **Watchlist + Runners** — `check_runne

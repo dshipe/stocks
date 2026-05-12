@@ -74,12 +74,31 @@ MIN_CONSEC_LOW_VOL_DAYS = int(os.getenv("MIN_CONSEC_LOW_VOL_DAYS",   "3"))    # 
 # ─── Watchlist Trigger ─────────────────────────────────────────────────────────
 MAX_DIST_FROM_PIVOT_PCT = float(os.getenv("MAX_DIST_FROM_PIVOT_PCT", "8.0"))  # within 8% of pivot (raised from 5% on 2026-04-29: SNDK was 6.4% away and excluded)
 
-# ─── Stage 5: Breakout Confirmation ───────────────────────────────────────────
+# ─── Stage 5: Breakout Confirmation (base-pivot path) ────────────────────────
 # R24 (updated 2026-05-07): Now checks last 30-min candle intensity, not cumulative daily volume.
 # At 10:00 AM you cannot know if the day will finish at 1.25x daily avg - use intraday intensity instead.
 MIN_BREAKOUT_30MIN_VOL_RATIO = float(os.getenv("MIN_BREAKOUT_30MIN_VOL_RATIO", "3.0"))  # R24 - last 30-min candle >= 3x avg 30-min volume
 MIN_BREAKOUT_VOL_RATIO  = float(os.getenv("MIN_BREAKOUT_VOL_RATIO",  "1.25")) # legacy - kept for reference, not used in check_breakout()
 MAX_CLOSE_FROM_HIGH_PCT = float(os.getenv("MAX_CLOSE_FROM_HIGH_PCT", "5.0"))  # R25 - close within 5% of candle high
+
+# ─── ADR-Based Breakout (parallel path — added 2026-05-11) ───────────────────
+# Catches pure momentum moves (episodic pivots, news surges) without requiring
+# a base or pivot. Runs in parallel with the base-pivot path in the breakout scanner.
+# A stock that fires both paths is reported as base-pivot (higher conviction).
+#
+# ADR1: intraday move from prev close >= MIN_ADR_BREAKOUT_MULT × ADR%
+#        e.g. ADR=4%, mult=0.5 → need a 2%+ move. Scales with the stock's volatility.
+# ADR2: cumulative day volume >= MIN_ADR_BREAKOUT_VOL_RATIO × avg daily volume (20d)
+# ADR3: price within MAX_CLOSE_FROM_HIGH_PCT% of session high (shared with R25)
+#
+# To tighten (fewer, higher-conviction signals):
+#   MIN_ADR_BREAKOUT_MULT=1.0      (full ADR move required)
+#   MIN_ADR_BREAKOUT_VOL_RATIO=2.0 (2x daily avg volume)
+# To disable: MIN_ADR_BREAKOUT_MULT=999 in scan/.env
+MIN_ADR_BREAKOUT_MULT          = float(os.getenv("MIN_ADR_BREAKOUT_MULT",          "0.5"))  # ADR1
+MIN_ADR_BREAKOUT_30MIN_VOL_RATIO = float(os.getenv("MIN_ADR_BREAKOUT_30MIN_VOL_RATIO", "2.0"))  # ADR2 — last 30-min candle >= 2x avg 30-min vol
+# Note: daily cumulative volume cannot be used at 10 AM — it will never exceed yesterday's full-day vol.
+# The 30-min intensity check (same approach as R24) is the correct intraday proxy.
 
 # ─── Notifications (optional) ─────────────────────────────────────────────────
 TWILIO_SID      = os.getenv("TWILIO_SID",   "")

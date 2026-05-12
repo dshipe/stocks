@@ -553,71 +553,82 @@ def check_breakout(intraday: dict, base: dict, avg_vol_20d: float) -> dict | Non
     }
 
 
+# ─── ADR-Based Breakout (parallel path) ──────────────────────────────────────
+
+def check_adr_breakout(intraday: dict, df: pd.DataFrame) -> dict | None:
+    """
+    Parallel breakout path: detects pure momentum moves without requiring a base or pivot.
+
+    Catches episodic pivots, news-driven surges, and any stock that moves a meaningful
+    multiple of its normal daily range on above-average volume — regardless of whether
+    it was consolidating beforehand.
+
+    Rules applied:
+        ADR1 — intraday move from prev close >= MIN_ADR_BREAKOUT_MULT × ADR%
+                Scales with each stock's own volatility. ADR=4%, mult=0.5 → need 2%+ move.
+        ADR2 — cumulative day volume >= MIN_ADR_BREAKOUT_VOL_RATIO × avg daily volume (20d)
+                Uses full-day cumulative volume (not 30-min intensity) because the signal
+                here is sustained buying, not a single candle surge.
+        ADR3 — price within MAX_CLOSE_FROM_HIGH_PCT% of session high (shared with R25)
+                Ensures the move isn't reversing intraday.
+
+    Uses df.iloc[-2]["Close"] as prev_close (yesterday's close) so the function is
+    safe to call during market hours when df.iloc[-1] may be today's partial bar.
+
+    Returns dict with breakout details or None if conditions not met.
+    Added: 2026-05-11
+    """
+    if not intraday or df is None or len(df) < 3:
+        return None
+
+    last        = df.iloc[-1]
+    prev_close  = float(df.iloc[-2]["Close"])
+    adr_pct     = float(last["adr_pct"])     if not pd.isna(last["adr_pct"])     else 0
+    avg_vol_20d = float(last["avg_vol_20d"]) if not pd.isna(last["avg_vol_20d"]) else 0
+
+    if adr_pct <= 0 or avg_vol_20d <= 0 or prev_close <= 0:
+        return None
+
+    current_price    = intraday.get("current_price", 0)
+    cum_volume       = intraday.get("cum_volume", 0)
+    candle_close_pct = intraday.get("candle_close_pct", 999)
+    last_30min_vol   = intraday.get("last_30min_volume", 0)
+    avg_30min_vol    = intraday.get("avg_30min_volume", 0)
+
+    if current_price <= 0:
+        return None
+
+    # ADR1: Move from prev close must be >= N × ADR%
+    move_pct      = ((current_price - prev_close) / prev_close) * 100
+    adr_threshold = cfg.MIN_ADR_BREAKOUT_MULT * adr_pct
+    if move_pct < adr_threshold:
+        return None
+
+    # ADR2: Last 30-min candle intensity >= threshold × avg 30-min volume.
+    # Cumulative daily volume cannot be used at 10 AM — it will never reach
+    # yesterday's full-day total. Same approach as R24 in check_breakout().
+    if avg_30min_vol <= 0:
+        return None
+    volume_ratio = last_30min_vol / avg_30min_vol
+    if volume_ratio < cfg.MIN_ADR_BREAKOUT_30MIN_VOL_RATIO:
+        return None
+
+    # ADR3: Price near session high (not reversing) — reuses R25 threshold
+    if candle_close_pct > cfg.MAX_CLOSE_FROM_HIGH_PCT:
+        return None
+
+    return {
+        "breakout_price":    round(current_price, 4),
+        "pivot_price":       round(prev_close, 4),      # prev close is the reference level
+        "pct_above_pivot":   round(move_pct, 2),
+        "breakout_volume":   cum_volume,
+        "volume_ratio":      round(volume_ratio, 2),    # 30-min intensity ratio
+        "candle_close_pct":  round(candle_close_pct, 2),
+        "adr_pct":           round(adr_pct, 2),
+        "adr_mult":          round(move_pct / adr_pct, 2),
+        "last_30min_volume": last_30min_vol,
+        "avg_30min_volume":  avg_30min_vol,
+    }
+
+
 # ─── Qualification Reasons ────────────────────────────────────────────────────
-
-def build_qualification_reasons(
-    prior_move: dict | None,
-    base: dict,
-    vol_contraction: dict | None,
-    pattern_type: str,
-    grade: str,
-    momentum: dict | None = None,
-) -> str:
-    """
-    Build a JSON list of human-readable strings explaining exactly why
-    this stock qualifies. Stored verbatim in the database for audit + analysis.
-    """
-    reasons = []
-
-    # Momentum trend (Stage 2 — always present)
-    if momentum:
-        reasons.append(
-            f"Momentum: +{momentum['pct_1m']:.1f}% (1M) / "
-            f"+{momentum['pct_3m']:.1f}% (3M) / +{momentum['pct_6m']:.1f}% (6M)"
-        )
-        reasons.append(
-            f"Distance from 52-week high: {momentum['pct_from_52w_high']:.1f}% "
-            f"(threshold: {cfg.MAX_FROM_52W_HIGH}%)"
-        )
-
-    # Prior move (Stage 2b — bonus, may be absent)
-    if prior_move:
-        reasons.append(
-            f"Prior move: +{prior_move['move_pct']:.1f}% in {prior_move['move_days']} trading days"
-        )
-        reasons.append(
-            f"Volume surge during move: {prior_move['vol_surge_days']} day(s) with 2x+ avg volume"
-        )
-
-    # Base
-    reasons.append(
-        f"Base depth: {base['base_depth_pct']:.1f}% "
-        f"(threshold: {cfg.MAX_BASE_DEPTH_PCT}%)"
-    )
-    reasons.append(
-        f"Base duration: {base['base_duration_days']} trading days "
-        f"(range: {cfg.MIN_BASE_DAYS}-{cfg.MAX_BASE_DAYS} days)"
-    )
-    if base.get("above_50d_ma"):
-        reasons.append("Price above 50-day MA throughout base")
-    if base.get("ma10_above_ma20"):
-        reasons.append("10-day MA above 20-day MA (short-term bullish structure)")
-
-    # Volume contraction (bonus — None means no contraction detected)
-    if vol_contraction:
-        ratio_pct = vol_contraction["contraction_ratio"] * 100
-        reasons.append(
-            f"Volume contraction: base avg = {ratio_pct:.0f}% of 50-day avg "
-            f"(threshold: {cfg.MAX_BASE_VOL_RATIO * 100:.0f}%)"
-        )
-        reasons.append(
-            f"Consecutive below-average volume days: {vol_contraction['consecutive_low_vol_days']}"
-        )
-    else:
-        reasons.append("Volume contraction: not detected (no grade bonus)")
-
-    # Pattern and grade
-    reasons.append(f"Pattern detected: {pattern_type}")
-    reasons.append(f"Setup grade: {grade}")
-
-    return json.dumps(reasons)
