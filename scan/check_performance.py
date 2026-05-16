@@ -158,21 +158,23 @@ if rows:
 
 # ── Outlier investigation (returns beyond ±50% — likely data artifacts) ───────
 cur.execute("""
-SELECT 'watchlist' AS src, e.scan_date, e.ticker, e.pattern_grade,
-       p.pct_change_5d, p.pct_change_10d,
-       e.price_at_scan,
-       p.price_1d, p.price_5d, p.price_10d
-FROM watchlist_entries e
-JOIN watchlist_performance p ON p.watchlist_id = e.id
-WHERE ABS(COALESCE(p.pct_change_10d, p.pct_change_5d)) >= 50
-UNION ALL
-SELECT 'runner' AS src, e.scan_date, e.ticker, NULL,
-       p.pct_change_5d, p.pct_change_10d,
-       e.price_at_scan,
-       p.price_1d, p.price_5d, p.price_10d
-FROM runner_entries e
-JOIN runner_performance p ON p.runner_id = e.id
-WHERE ABS(COALESCE(p.pct_change_10d, p.pct_change_5d)) >= 50
+SELECT * FROM (
+    SELECT 'watchlist' AS src, e.scan_date, e.ticker, e.pattern_grade,
+           p.pct_change_5d, p.pct_change_10d,
+           e.price_at_scan,
+           p.price_1d, p.price_5d, p.price_10d
+    FROM watchlist_entries e
+    JOIN watchlist_performance p ON p.watchlist_id = e.id
+    WHERE ABS(COALESCE(p.pct_change_10d, p.pct_change_5d)) >= 50
+    UNION ALL
+    SELECT 'runner', e.scan_date, e.ticker, NULL,
+           p.pct_change_5d, p.pct_change_10d,
+           e.price_at_scan,
+           p.price_1d, p.price_5d, p.price_10d
+    FROM runner_entries e
+    JOIN runner_performance p ON p.runner_id = e.id
+    WHERE ABS(COALESCE(p.pct_change_10d, p.pct_change_5d)) >= 50
+) AS outliers
 ORDER BY ABS(COALESCE(pct_change_10d, pct_change_5d)) DESC
 """)
 rows = cur.fetchall()
