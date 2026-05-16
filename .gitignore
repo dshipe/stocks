@@ -1,19 +1,39 @@
-# Secrets — never commit
-scan/.env
+# Secrets - never commit
 .env
 *.env
-scan/schwab/schwab_token.json
+scan/.env
+scan/schwab_scripts/schwab_token.json
+scan/schwab_scripts/schwab_token.json.state
 
 # Python
 __pycache__/
 *.py[cod]
 *.pyc
-.pytest_cache/
+*.pyo
+*.pyd
 *.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+*.cover
 
 # Logs
-scan/logs/*.log
+scan/logs/
+*.log
+
+# OS
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
 
 # IDE
 .vscode/
 .idea/
+*.swp
+*.swo
+*~

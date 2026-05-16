@@ -620,3 +620,70 @@ def check_adr_breakout(intraday: dict, df: pd.DataFrame) -> dict | None:
     return {
         "breakout_price":    round(current_price, 4),
         "pivot_price":       round(prev_close, 4),      # prev close is the reference level
+        "pct_above_pivot":   round(move_pct, 2),
+        "breakout_volume":   cum_volume,
+        "volume_ratio":      round(volume_ratio, 2),    # 30-min intensity ratio
+        "candle_close_pct":  round(candle_close_pct, 2),
+        "adr_pct":           round(adr_pct, 2),
+        "adr_mult":          round(move_pct / adr_pct, 2),
+        "last_30min_volume": last_30min_vol,
+        "avg_30min_volume":  avg_30min_vol,
+    }
+
+
+# ─── Qualification Reasons ────────────────────────────────────────────────────
+
+def build_qualification_reasons(
+    prior_move: dict | None,
+    base: dict,
+    vol_contraction: dict | None,
+    pattern_type: str,
+    grade: str,
+    momentum: dict | None = None,
+) -> str:
+    """
+    Build a JSON array of human-readable qualification reasons for the database.
+
+    Returns a JSON string (list of reason strings), most important first.
+    Stored in watchlist_entries.qualification_reasons and breakout_entries.qualification_reasons.
+
+    prior_move is optional (Stage 2b bonus); momentum is the Stage 2 gate result.
+    Both may be None — the function handles all combinations gracefully.
+    """
+    reasons = []
+
+    # Stage 2b: prior explosive move (most specific signal — lead with it)
+    if prior_move:
+        reasons.append(
+            f"Prior move: +{prior_move['move_pct']:.1f}% in {prior_move['move_days']}d"
+            f" (peak {prior_move['peak_date']})"
+        )
+
+    # Stage 2: momentum trend (always present for watchlist entries)
+    if momentum:
+        reasons.append(
+            f"Momentum: 1M {momentum['pct_1m']:+.1f}%  "
+            f"3M {momentum['pct_3m']:+.1f}%  "
+            f"6M {momentum['pct_6m']:+.1f}%"
+        )
+
+    # Stage 3: base quality
+    reasons.append(
+        f"Base: {base['base_depth_pct']:.1f}% depth over {base['base_duration_days']}d"
+    )
+    if base.get("above_50d_ma"):
+        reasons.append("Above 50d MA")
+    if base.get("ma10_above_ma20"):
+        reasons.append("10d MA above 20d MA")
+
+    # Stage 4: volume contraction (bonus — may be None)
+    if vol_contraction:
+        reasons.append(
+            f"Vol contraction: {vol_contraction['contraction_ratio']:.0%} of 50d avg"
+            f" ({vol_contraction['consecutive_low_vol_days']}d consecutive)"
+        )
+
+    # Pattern and grade
+    reasons.append(f"Pattern: {pattern_type}  Grade: {grade}")
+
+    return json.dumps(reasons)
