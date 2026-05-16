@@ -149,6 +149,15 @@ def check_runner_state(
     last  = df.iloc[-1]
     price = universe["current_price"]
 
+    # R_RUN3: Price floor — tighter than Stage 1 to filter micro-caps (added 2026-05-16).
+    # Micro-caps trading $5-$10 produce noisy extreme-% signals from a tiny base.
+    if price < cfg.MIN_RUNNER_PRICE:
+        return None
+
+    # R_RUN4: Volume floor — tighter than Stage 1 to ensure liquidity (added 2026-05-16).
+    if universe["avg_vol_20d"] < cfg.MIN_RUNNER_AVG_VOLUME:
+        return None
+
     # R_RUN2: Require a prior explosive move (added 2026-05-06).
     # Ensures runners have a known catalyst — not just generic momentum.
     # To remove this gate: set RUNNER_REQUIRE_PRIOR_MOVE=false in scan/.env

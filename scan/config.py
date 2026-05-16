@@ -67,6 +67,15 @@ RUNNER_REQUIRE_PRIOR_MOVE = os.getenv("RUNNER_REQUIRE_PRIOR_MOVE", "true").lower
 # Rationale: runners with no catalyst are generic momentum stocks, not high-conviction.
 # To disable: RUNNER_REQUIRE_PRIOR_MOVE=false in scan/.env
 
+MIN_RUNNER_PRICE      = float(os.getenv("MIN_RUNNER_PRICE",      "10.0"))
+# R_RUN3: Runner price floor (tighter than the Stage 1 $5 minimum).
+# Rationale: micro-caps and recent IPOs trading $5-$10 pass Stage 1 but produce
+# noisy signals with extreme 3M% (e.g. +1294%) from a tiny base. $10 floor removes most.
+
+MIN_RUNNER_AVG_VOLUME = int(os.getenv("MIN_RUNNER_AVG_VOLUME",   "500000"))
+# R_RUN4: Runner volume floor (tighter than the Stage 1 300k minimum).
+# Rationale: low-float runners are illiquid and hard to trade at meaningful size.
+
 # ─── Stage 4: Volume Contraction ──────────────────────────────────────────────
 MAX_BASE_VOL_RATIO      = float(os.getenv("MAX_BASE_VOL_RATIO",      "0.85")) # R19 — raised from 0.75 (2026-04-29: KLAC, MRVL, BKR etc. failing at 0.75)
 MIN_CONSEC_LOW_VOL_DAYS = int(os.getenv("MIN_CONSEC_LOW_VOL_DAYS",   "3"))    # R20

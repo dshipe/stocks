@@ -51,6 +51,7 @@ def insert_watchlist_entry(data: dict) -> int | None:
         volume_contraction_days, qualification_reasons, pattern_type, pattern_grade
 
     Returns the new row's id or None on failure.
+    Silently skips if the same (scan_date, ticker) already exists.
     """
     sql = """
         INSERT INTO watchlist_entries (
@@ -61,14 +62,20 @@ def insert_watchlist_entry(data: dict) -> int | None:
             volume_contraction_days, qualification_reasons, pattern_type, pattern_grade
         )
         OUTPUT INSERTED.id
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        WHERE NOT EXISTS (
+            SELECT 1 FROM watchlist_entries
+            WHERE scan_date = ? AND ticker = ?
+        );
     """
     try:
         conn = get_connection()
         cursor = conn.cursor()
+        sd = data.get("scan_date", date.today())
+        tk = data.get("ticker", "")
         cursor.execute(sql, (
-            data.get("scan_date",               date.today()),
-            data.get("ticker",                  ""),
+            sd,
+            tk,
             data.get("company_name",            None),
             data.get("price_at_scan",           None),
             data.get("pivot_price",             None),
@@ -87,6 +94,8 @@ def insert_watchlist_entry(data: dict) -> int | None:
             data.get("qualification_reasons",   None),
             data.get("pattern_type",            None),
             data.get("pattern_grade",           None),
+            # WHERE NOT EXISTS parameters
+            sd, tk,
         ))
         row = cursor.fetchone()
         conn.commit()

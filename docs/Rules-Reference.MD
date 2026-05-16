@@ -61,6 +61,8 @@
 | **R46** | Market | Sector | Sector in uptrend | Sector in uptrend | | — |
 | **R_RUN1** | Runner | Near recent high | — | Within **10%** of 20-day high (`MAX_RUNNER_FROM_20D_HIGH`) | 🔧 2026-05-06 | ✅ |
 | **R_RUN2** | Runner | Prior move required | — | `find_prior_explosive_move()` must return a result (`RUNNER_REQUIRE_PRIOR_MOVE`) | 🔧 2026-05-06 | ✅ |
+| **R_RUN3** | Runner | Price floor | — | Price ≥ **$10** (`MIN_RUNNER_PRICE`) — filters micro-caps with extreme % moves from tiny base | 🔧 2026-05-16 | ✅ |
+| **R_RUN4** | Runner | Volume floor | — | Avg vol ≥ **500k** (`MIN_RUNNER_AVG_VOLUME`) — ensures liquidity | 🔧 2026-05-16 | ✅ |
 
 ---
 
@@ -102,6 +104,8 @@ Modify in `scan/config.py` or override via `scan/.env`:
 | `MIN_ADR_BREAKOUT_30MIN_VOL_RATIO` | — | **2.0×** | ADR2 (30-min intensity) | 🔧 2026-05-11 |
 | `MAX_RUNNER_FROM_20D_HIGH` | — (hardcoded 15%) | **10%** | R_RUN1 | 🔧 2026-05-06 |
 | `RUNNER_REQUIRE_PRIOR_MOVE` | — (false) | **true** | R_RUN2 | 🔧 2026-05-06 |
+| `MIN_RUNNER_PRICE` | — ($5 Stage 1 floor) | **$10** | R_RUN3 | 🔧 2026-05-16 |
+| `MIN_RUNNER_AVG_VOLUME` | — (300k Stage 1 floor) | **500k** | R_RUN4 | 🔧 2026-05-16 |
 
 ---
 
@@ -156,6 +160,12 @@ R43–R46  Market Filter        → S&P above MAs, low VIX, sector uptrend
 | 2026-04-30 | S&P 500 source | yahoo_fin (Wikipedia scrape, 403 on EC2) | yahoo_fin → GitHub CSV fallback (`datasets/s-and-p-500-companies`) | EC2 IP blocked by Wikipedia; GitHub raw serves CSV without auth |
 | 2026-04-30 | Telegram large watchlist | Single message (fails at 4096 chars) | `_send_chunked()` splits on blank lines into ≤4000-char parts | 53-stock watchlist caused 400 Bad Request from Telegram API |
 | 2026-04-30 | `bulk_fetch_history` single-ticker batch | `raw.copy()` (flat DF assumed) | `raw[ticker].copy()` always | yfinance ≥1.x returns MultiIndex even for 1-ticker batches; caused silent skip of SNDK, WDC, and any `--ticker` run |
-| 2026-04-30 | Stage 3 failure handling | Stock silently dropped | **Runners list** — `check_runner_state()` captures markup-phase stocks in `runner_entries` | SNDK, WDC pass S1+S2 but have no base; now tracked as runners until they consolidate |
-| 2026-04-30 | Runner performance | Not tracked | `runner_performance` table — 1d/5d/10d/20d/60d outcomes + `did_set_up` + `days_to_setup` | Mirrors watchlist_performance; enables analysis of how long runners take to set up |
-| 2026-04-30 | Breakout scanner scope | Watchlist only | **Watchlist + Runners** — `check_runne
+| 2026-04-30 | Stage 3 failure handling | Stock silently dropped | **Runners list** -- `check_runner_state()` captures markup-phase stocks in `runner_entries` | SNDK, WDC pass S1+S2 but have no base; now tracked as runners until they consolidate |
+| 2026-04-30 | Runner performance | Not tracked | `runner_performance` table -- 1d/5d/10d/20d/60d outcomes + `did_set_up` + `days_to_setup` | Mirrors watchlist_performance; enables analysis of how long runners take to set up |
+| 2026-04-30 | Breakout scanner scope | Watchlist only | **Watchlist + Runners** -- `check_runner_breakout()` runs every 30 min against runner_entries | Catches same-day runner->base->breakout transitions the morning scan would miss |
+| 2026-05-06 | Runner gates tightened | MAX_RUNNER_FROM_20D_HIGH=15%, RUNNER_REQUIRE_PRIOR_MOVE=false | **10% proximity + prior move required** | Performance data showed runner list had too many generic momentum stocks with no known catalyst |
+| 2026-05-07 | R24 volume check | Cumulative daily vol >= 1.25x 20d avg | **Last 30-min candle >= 3x avg 30-min vol** | At 10 AM cumulative vol is ~1/13th of daily total -- intraday intensity is the correct intraday proxy |
+| 2026-05-11 | ADR breakout path added | Base-pivot only | **Parallel ADR path** -- move >= 0.5x ADR% + 30-min vol >= 2x avg + near session high | Catches episodic pivots and news surges without requiring a prior base |
+| 2026-05-16 | Watchlist dedup | Plain INSERT (allowed duplicates) | **WHERE NOT EXISTS guard** in `insert_watchlist_entry()` | Performance analysis found many duplicate (scan_date, ticker) rows inflating counts |
+| 2026-05-16 | `MIN_RUNNER_PRICE` | -- ($5 Stage 1 floor) | **$10** | Micro-caps $5-$10 produced noisy signals with extreme 3M% (e.g. +1294%) from tiny base |
+| 2026-05-16 | `MIN_RUNNER_AVG_VOLUME` | -- (300k Stage 1 floor) | **500k** | Low-float runners are illiquid and hard to trade at meaningful size |

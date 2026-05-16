@@ -45,15 +45,12 @@ WHERE p.pct_change_5d IS NOT NULL
 GROUP BY e.pattern_grade ORDER BY e.pattern_grade
 """)
 rows = cur.fetchall()
+fmt = lambda v: f"{v:>+.1f}%" if v is not None else "    —  "
 print(f"\n  {'Grade':<5} {'N':>4}  {'Avg5d':>7}  {'Avg10d':>7}  {'Avg20d':>7}  {'MaxGain':>8}  {'BO%':>5}")
 print("  " + "─" * 56)
 for g, n, a5, a10, a20, amg, bo in rows:
-    a5  = f"{a5:>+.1f}%"  if a5  is not None else "    —  "
-    a10 = f"{a10:>+.1f}%" if a10 is not None else "    —  "
-    a20 = f"{a20:>+.1f}%" if a20 is not None else "    —  "
-    amg = f"{amg:>+.1f}%" if amg is not None else "    —  "
-    bo  = f"{bo:.0f}%"    if bo  is not None else " —"
-    print(f"  {g:<5} {n:>4}  {a5:>8}  {a10:>8}  {a20:>8}  {amg:>9}  {bo:>5}")
+    bo = f"{bo:.0f}%" if bo is not None else "—"
+    print(f"  {g:<5} {n:>4}  {fmt(a5):>8}  {fmt(a10):>8}  {fmt(a20):>8}  {fmt(amg):>9}  {bo:>5}")
 
 # ── By pattern ─────────────────────────────────────────────────────────────────
 cur.execute("""
@@ -71,51 +68,30 @@ rows = cur.fetchall()
 print(f"\n  {'Pattern':<12} {'N':>4}  {'Avg5d':>7}  {'Avg10d':>7}  {'Avg20d':>7}  {'BO%':>5}")
 print("  " + "─" * 52)
 for pt, n, a5, a10, a20, bo in rows:
-    a5  = f"{a5:>+.1f}%"  if a5  is not None else "    —  "
-    a10 = f"{a10:>+.1f}%" if a10 is not None else "    —  "
-    a20 = f"{a20:>+.1f}%" if a20 is not None else "    —  "
-    bo  = f"{bo:.0f}%"    if bo  is not None else " —"
-    print(f"  {pt:<12} {n:>4}  {a5:>8}  {a10:>8}  {a20:>8}  {bo:>5}")
+    bo = f"{bo:.0f}%" if bo is not None else "—"
+    print(f"  {pt:<12} {n:>4}  {fmt(a5):>8}  {fmt(a10):>8}  {fmt(a20):>8}  {bo:>5}")
 
-# ── Top 10 by 20d return ───────────────────────────────────────────────────────
+# ── All watchlist stocks with 5d+ data, sorted by best return ─────────────────
 cur.execute("""
-SELECT TOP 10 e.scan_date, e.ticker, e.pattern_grade, e.pattern_type,
-       p.pct_change_5d, p.pct_change_10d, p.pct_change_20d, p.max_gain_pct, p.did_break_out
+SELECT e.scan_date, e.ticker, e.pattern_grade, e.pattern_type,
+       p.pct_change_5d, p.pct_change_10d, p.pct_change_20d,
+       p.max_gain_pct, p.did_break_out
 FROM watchlist_entries e
 JOIN watchlist_performance p ON p.watchlist_id = e.id
-WHERE p.pct_change_20d IS NOT NULL
-ORDER BY p.pct_change_20d DESC
+WHERE p.pct_change_5d IS NOT NULL
+ORDER BY COALESCE(p.pct_change_10d, p.pct_change_5d) DESC
 """)
 rows = cur.fetchall()
-print(f"\n  Top 10 by 20d return")
+print(f"\n  All watchlist stocks with return data ({len(rows)} entries, sorted by best return)")
 print(f"  {'Date':<11} {'Ticker':<7} {'Gr':<3} {'Pattern':<10} {'5d':>7} {'10d':>7} {'20d':>7} {'Max':>7}  BO")
-print("  " + "─" * 70)
+print("  " + "─" * 72)
 for sd, tk, gr, pt, d5, d10, d20, mg, bo in rows:
-    d5  = f"{d5:>+.1f}%"  if d5  is not None else "    —  "
-    d10 = f"{d10:>+.1f}%" if d10 is not None else "    —  "
-    d20 = f"{d20:>+.1f}%" if d20 is not None else "    —  "
-    mg  = f"{mg:>+.1f}%"  if mg  is not None else "    —  "
-    print(f"  {str(sd)[:10]:<10} {tk:<6} {gr:<3} {pt:<10} {d5:>8} {d10:>8} {d20:>8} {mg:>8}  {'✓' if bo else '✗'}")
+    print(
+        f"  {str(sd)[:10]:<10} {tk:<6} {gr:<3} {pt:<10} "
+        f"{fmt(d5):>8} {fmt(d10):>8} {fmt(d20):>8} {fmt(mg):>8}  {'✓' if bo else '✗'}"
+    )
 
-# ── Bottom 5 ───────────────────────────────────────────────────────────────────
-cur.execute("""
-SELECT TOP 5 e.scan_date, e.ticker, e.pattern_grade,
-       p.pct_change_5d, p.pct_change_10d, p.pct_change_20d, p.did_break_out
-FROM watchlist_entries e
-JOIN watchlist_performance p ON p.watchlist_id = e.id
-WHERE p.pct_change_20d IS NOT NULL
-ORDER BY p.pct_change_20d ASC
-""")
-rows = cur.fetchall()
-print(f"\n  Bottom 5 by 20d return")
-print("  " + "─" * 60)
-for sd, tk, gr, d5, d10, d20, bo in rows:
-    d5  = f"{d5:>+.1f}%"  if d5  is not None else "  —"
-    d10 = f"{d10:>+.1f}%" if d10 is not None else "  —"
-    d20 = f"{d20:>+.1f}%" if d20 is not None else "  —"
-    print(f"  {str(sd)[:10]} {tk:<6} [{gr}]  5d:{d5}  10d:{d10}  20d:{d20}  {'✓' if bo else '✗'}")
-
-# ── Runners ────────────────────────────────────────────────────────────────────
+# ── Runner summary ─────────────────────────────────────────────────────────────
 cur.execute("""
 SELECT COUNT(*) AS total,
        SUM(CASE WHEN p.id IS NOT NULL THEN 1 ELSE 0 END)             AS has_perf,
@@ -146,7 +122,6 @@ WHERE p.pct_change_5d IS NOT NULL
 r = cur.fetchone()
 if r and r[0]:
     n, a5, a10, a20, amg, sp, bp, dts = r
-    fmt = lambda v: f"{v:>+.1f}%" if v is not None else "  —"
     print(f"\n  Entries w/ 5d data : {n}")
     print(f"  Avg 5d return      : {fmt(a5)}")
     print(f"  Avg 10d return     : {fmt(a10)}")
@@ -159,28 +134,66 @@ if r and r[0]:
 else:
     print("  No runner performance data with 5d returns yet.")
 
-# ── Top 10 runners by 20d ─────────────────────────────────────────────────────
+# ── All runner stocks with 5d data, sorted by best return ─────────────────────
 cur.execute("""
-SELECT TOP 10 e.scan_date, e.ticker, e.pct_3m,
+SELECT e.scan_date, e.ticker, e.pct_3m,
        p.pct_change_5d, p.pct_change_10d, p.pct_change_20d,
        p.max_gain_pct, p.did_set_up, p.did_break_out
 FROM runner_entries e
 JOIN runner_performance p ON p.runner_id = e.id
-WHERE p.pct_change_20d IS NOT NULL
-ORDER BY p.pct_change_20d DESC
+WHERE p.pct_change_5d IS NOT NULL
+ORDER BY COALESCE(p.pct_change_10d, p.pct_change_5d) DESC
 """)
 rows = cur.fetchall()
 if rows:
-    print(f"\n  Top 10 runners by 20d return")
+    print(f"\n  All runners with return data ({len(rows)} entries, sorted by best return)")
     print(f"  {'Date':<11} {'Ticker':<7} {'3M%':>6}  {'5d':>7} {'10d':>7} {'20d':>7} {'Max':>7}  Setup  BO")
-    print("  " + "─" * 72)
+    print("  " + "─" * 74)
     for sd, tk, m3, d5, d10, d20, mg, su, bo in rows:
-        m3  = f"{m3:>+.1f}%"  if m3  is not None else "   —  "
-        d5  = f"{d5:>+.1f}%"  if d5  is not None else "   —  "
-        d10 = f"{d10:>+.1f}%" if d10 is not None else "   —  "
-        d20 = f"{d20:>+.1f}%" if d20 is not None else "   —  "
-        mg  = f"{mg:>+.1f}%"  if mg  is not None else "   —  "
-        print(f"  {str(sd)[:10]:<10} {tk:<6} {m3:>7}  {d5:>8} {d10:>8} {d20:>8} {mg:>8}  {'✓' if su else '✗'}      {'✓' if bo else '✗'}")
+        print(
+            f"  {str(sd)[:10]:<10} {tk:<6} {fmt(m3):>7}  "
+            f"{fmt(d5):>8} {fmt(d10):>8} {fmt(d20):>8} {fmt(mg):>8}  "
+            f"{'✓' if su else '✗'}      {'✓' if bo else '✗'}"
+        )
+
+# ── Outlier investigation (returns beyond ±50% — likely data artifacts) ───────
+cur.execute("""
+SELECT 'watchlist' AS src, e.scan_date, e.ticker, e.pattern_grade,
+       p.pct_change_5d, p.pct_change_10d,
+       e.price_at_scan,
+       p.price_1d, p.price_5d, p.price_10d
+FROM watchlist_entries e
+JOIN watchlist_performance p ON p.watchlist_id = e.id
+WHERE ABS(COALESCE(p.pct_change_10d, p.pct_change_5d)) >= 50
+UNION ALL
+SELECT 'runner' AS src, e.scan_date, e.ticker, NULL,
+       p.pct_change_5d, p.pct_change_10d,
+       e.price_at_scan,
+       p.price_1d, p.price_5d, p.price_10d
+FROM runner_entries e
+JOIN runner_performance p ON p.runner_id = e.id
+WHERE ABS(COALESCE(p.pct_change_10d, p.pct_change_5d)) >= 50
+ORDER BY ABS(COALESCE(pct_change_10d, pct_change_5d)) DESC
+""")
+rows = cur.fetchall()
+if rows:
+    print(f"\n=== OUTLIERS (returns >= +/-50% -- verify these are not data errors) ===")
+    print(f"  {'Src':<10} {'Date':<11} {'Ticker':<7} {'Gr':<3} {'Entry':>8} {'1d':>8} {'5d':>8} {'5d%':>7} {'10d':>8} {'10d%':>7}")
+    print("  " + "-" * 80)
+    seen = set()
+    for src, sd, tk, gr, d5, d10, entry, p1, p5, p10 in rows:
+        key = (src, str(sd), tk)
+        if key in seen:
+            continue
+        seen.add(key)
+        gr   = gr or "-"
+        print(
+            f"  {src:<10} {str(sd)[:10]:<10} {tk:<6} {gr:<3} "
+            f"{fmt(entry):>9} {fmt(p1):>9} {fmt(p5):>9} {fmt(d5):>8} "
+            f"{fmt(p10):>9} {fmt(d10):>8}"
+        )
+    print(f"\n  Action: for each ticker above, verify the price data is correct.")
+    print(f"  Common causes: reverse splits, spinoffs, special dividends, ticker reuse.")
 
 conn.close()
 print()
