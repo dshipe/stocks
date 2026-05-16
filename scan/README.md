@@ -15,14 +15,14 @@ Automated Qullamaggie-style watchlist and breakout detection system.
 ## Prerequisites
 
 - Python 3.9+
-- **ODBC Driver 17 for SQL Server** — [Download here](https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server)
+- **ODBC Driver 18 for SQL Server** — [Download here](https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server)
 
-Install on Ubuntu/Debian:
+Install on Ubuntu/Debian (Ubuntu 24.04):
 ```bash
-curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
-curl https://packages.microsoft.com/config/ubuntu/22.04/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc
+curl -fsSL https://packages.microsoft.com/config/ubuntu/24.04/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
 sudo apt-get update
-sudo ACCEPT_EULA=Y apt-get install -y msodbcsql17
+sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18
 ```
 
 ---
@@ -60,9 +60,11 @@ All settings are in `config.py`. Override any value by creating a `.env` file in
 
 ```env
 # .env — optional overrides (do not commit to git)
-MIN_MOMENTUM_3M_PCT=25      # raise to tighten momentum gate (default 15)
-MAX_BASE_DEPTH_PCT=10       # tighter bases only (default 20)
-MIN_BREAKOUT_VOL_RATIO=2.0  # require stronger volume confirmation (default 1.5)
+MIN_MOMENTUM_3M_PCT=25            # raise to tighten momentum gate (default 15)
+MAX_BASE_DEPTH_PCT=10             # tighter bases only (default 20)
+MIN_BREAKOUT_30MIN_VOL_RATIO=4.0  # require stronger 30-min intensity (default 3.0)
+MAX_RUNNER_FROM_20D_HIGH=15.0     # loosen runner proximity gate (default 10.0)
+RUNNER_REQUIRE_PRIOR_MOVE=false   # remove prior-move requirement from runners
 ```
 
 ---
@@ -94,18 +96,24 @@ scan/
 ├── README.md                  ← This file
 ├── requirements.txt           ← pip dependencies (incl. yahoo-fin)
 ├── cron_setup.sh              ← Installs all cron jobs
-├── db_setup.sql               ← Creates all 4 SQL Server tables
+├── db_setup.sql               ← Creates all 6 SQL Server tables (idempotent)
 ├── config.py                  ← All thresholds and DB settings
 │
 ├── watchlist_scanner.py       ← 8 AM daily market scan
-├── breakout_scanner.py        ← 30-min intraday breakout checker
+├── breakout_scanner.py        ← 30-min intraday breakout checker (base-pivot + ADR paths)
 ├── performance_tracker.py     ← End-of-day price outcome recorder
+├── diagnose_ticker.py         ← Debug a single ticker through the full pipeline
+│
+├── schwab_scripts/
+│   ├── schwab_stop_loss.py    ← GTC stop-loss manager (10d SMA, Option B backoff)
+│   └── schwab_watchlist_sync.py ← Push scan results to Schwab watchlists
 │
 └── shared/
     ├── __init__.py
     ├── data_fetcher.py        ← yahoo_fin universe + bulk yfinance fetch + indicators
-    ├── criteria.py            ← Qullamaggie Stage 1–5 + runner state logic
-    └── db_writer.py           ← All SQL Server read/write functions
+    ├── criteria.py            ← Qullamaggie Stage 1–5 + ADR breakout + runner state logic
+    ├── db_writer.py           ← All SQL Server read/write functions
+    └── telegram_notify.py     ← Telegram bot notifications (watchlist + breakout + runners)
 ```
 
 ---
@@ -208,7 +216,9 @@ Based on Kristjan Kullamägi (Qullamaggie) momentum breakout methodology:
 - **Stage 2** — Momentum trend: 1M ≥ 5%, 3M ≥ 15%, 6M ≥ 30% — *never ages out*
 - **Stage 2b** — Prior explosive move (≥25% in 60d) — *bonus grading only, not a gate*
 - **Stage 3** — Tight consolidation base (≤20% depth, 5–40 days)
+- **Stage 3 fail** — Runner path: price > MA20 > MA50, within 10% of 20d high + prior move required
 - **Stage 4** — Volume contraction — *bonus grading only, not a gate*
-- **Stage 5** — Breakout confirmation (price + volume + candle strength)
+- **Stage 5 (base-pivot)** — Breakout: price > pivot + last 30-min vol ≥ 3× avg 30-min + candle near high
+- **Stage 5 (ADR)** — Parallel path: move ≥ 0.5× ADR% from prev close + 30-min vol ≥ 2× avg
 
 Full methodology: `qullamaggie/breakouts/Rules.MD`

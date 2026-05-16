@@ -62,7 +62,9 @@ Stage 3   find_consolidation_base()    5–40 days, depth ≤ 20%
           → if base FOUND: Trigger (0–8% below pivot) → watchlist_entries
           → if base NONE:  check_runner_state() → if markup phase → runner_entries
 Stage 4   check_volume_contraction()   base vol ≤ 85% of 50d avg — bonus grading only, NOT a gate
-Stage 5   check_breakout()             price > pivot + vol ≥ 1.5x + strong candle (breakout scanner)
+Stage 5   check_breakout()             price > pivot + last 30-min vol ≥ 3x avg 30-min vol + candle near high (base-pivot path)
+          check_adr_breakout()          move ≥ 0.5× ADR% from prev close + 30-min vol ≥ 2x avg + near session high (ADR parallel path)
+          → both paths run in parallel; base-pivot takes precedence if both fire
           → breakout scanner also checks runner_entries for intraday base formation
 ```
 
@@ -82,9 +84,10 @@ Key params:
 - **Return `None` to fail a stage.** All criteria functions return `None` on miss, a dict on pass.
 - **`prior_move` is optional everywhere.** Since 2026-04-29, Stage 2b is not a gate. `grade_setup()` and `build_qualification_reasons()` both accept `prior_move=None`.
 - **Runners vs watchlist.** Stocks that pass S1+S2 but have no base go to `runner_entries` via
-  `check_runner_state()` (price > MA20 > MA50, within 15% of 20d high). They appear on the
+  `check_runner_state()` (price > MA20 > MA50, within 10% of 20d high, prior explosive move required).
+  Controlled by `MAX_RUNNER_FROM_20D_HIGH=10.0` and `RUNNER_REQUIRE_PRIOR_MOVE=true` in config. They appear on the
   main watchlist automatically when a base forms — no manual promotion needed.
-- **Log threshold changes.** Add a row to the change log table in `plans/Rules-Reference.MD` and a section in `plans/watchlist-plan.md`. Do not change thresholds silently.
+- **Log threshold changes.** Add a row to the change log table in `docs/Rules-Reference.MD` and a section in `docs/watchlist-plan.md`. Do not change thresholds silently.
 - **Parameterized queries only** in `db_writer.py`. No string-formatted SQL.
 - **Schema changes go in `db_setup.sql`** with `IF NOT EXISTS` guards.
 
@@ -100,8 +103,10 @@ does not drop a stock. Do not revert this to a gate.
 
 ## Plans & Rules Docs
 
-- `plans/Rules-Reference.MD` — complete rules table (R1–R46), thresholds, change log
-- `plans/watchlist-plan.md` — design decisions, rationale, historical changes
+- `docs/Rules-Reference.MD` — complete rules table (R1–R46), thresholds, change log
+- `docs/watchlist-plan.md` — design decisions, rationale, historical changes, runners section
+- `docs/breakout-scanner-plan.md` — breakout scanner design, ADR path, implementation history
+- `docs/schwab-integration.md` — stop-loss manager + watchlist sync (auth, rate limits, scheduling)
 - `qullamaggie/breakouts/Rules.MD` — source methodology
 
 ## Tech Debt
@@ -110,10 +115,4 @@ does not drop a stock. Do not revert this to a gate.
 - No dedup constraint on `watchlist_entries(scan_date, ticker)`
 - No backtesting harness — criteria changes validated on current data only
 - `tickers_nasdaq()` from yahoo_fin returns all Nasdaq-listed stocks (~5,000+); no pre-screen
-  by market cap or price before the bulk download. Stage 1 drops most, but the download is wide.
-- **yfinance ≥1.x**: `yf.download()` always returns `(ticker, field)` MultiIndex — always access
-  per-ticker data with `raw[ticker]`, never `raw.copy()` on single-ticker batches.
-- Runner stocks that form a base intraday are caught by the breakout scanner same day;
-  those that form overnight are caught by the 8 AM watchlist scan the next day.
-- Telegram large messages split via `_send_chunked()` in `shared/telegram_notify.py` — splits
-  on blank lines into ≤4000-char parts. Works correctly but adds round-trips for large watchlists.
+  by market cap or price before the bulk download. St

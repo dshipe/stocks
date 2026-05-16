@@ -113,9 +113,9 @@ The pivot is the exact price where a breakout triggers.
 > gives you a second line of notification with no dependency on the server.
 
 ### Step 3 — Watch Volume During the Day
-A valid breakout requires **volume ≥ 150% of the 20-day average**.
-Monitor volume during the first 30 minutes after the pivot is crossed.
-If price crosses pivot on light volume — wait. It may be a false break.
+A valid breakout requires the **most recent 30-minute candle to show ≥ 3× the average 30-min volume** (the scanner measures intensity, not cumulative daily volume — which can't be known early in the session).
+Monitor volume during and after the pivot cross.
+If price crosses the pivot but the 30-min bars are thin — wait. It may be a false break.
 
 ### Step 4 — Entry Rules
 **Intraday entry (aggressive):**
@@ -297,5 +297,5 @@ tail -60 /home/ubuntu/.openclaw/workspace/stocks-repo/scan/logs/watchlist.log
 
 ---
 
-*Last updated: 2026-04-30 (yahoo_fin ticker source, bulk fetch, parallel criteria eval)*
+*Last updated: 2026-05-16 (R24 30-min intensity; runner gates; ADR breakout path)*
 *See also: `breakout-scanner-usage.md`, `watchlist-plan.md`*

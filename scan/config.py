@@ -1,7 +1,7 @@
 """
 config.py — Central configuration for the stock scanning system.
 
-All thresholds are based on Qullamaggie methodology documented in plans/.
+All thresholds are based on Qullamaggie methodology documented in docs/.
 Override any value via a .env file in the scan/ directory.
 """
 
@@ -108,7 +108,4 @@ TWILIO_FROM     = os.getenv("TWILIO_FROM",  "")
 
 # ─── Market Hours (EST) ────────────────────────────────────────────────────────
 MARKET_OPEN_HOUR    = 9
-MARKET_OPEN_MINUTE  = 30
-MARKET_CLOSE_HOUR   = 16
-MARKET_CLOSE_MINUTE = 0
-MARKET_TIMEZONE     = "America/New_York"
+MARKE

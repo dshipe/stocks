@@ -59,6 +59,8 @@
 | **R44** | Market | Distribution | No distribution phase | No distribution phase | | — |
 | **R45** | Market | VIX | VIX < 30 | VIX < 30 | | — |
 | **R46** | Market | Sector | Sector in uptrend | Sector in uptrend | | — |
+| **R_RUN1** | Runner | Near recent high | — | Within **10%** of 20-day high (`MAX_RUNNER_FROM_20D_HIGH`) | 🔧 2026-05-06 | ✅ |
+| **R_RUN2** | Runner | Prior move required | — | `find_prior_explosive_move()` must return a result (`RUNNER_REQUIRE_PRIOR_MOVE`) | 🔧 2026-05-06 | ✅ |
 
 ---
 
@@ -90,7 +92,7 @@ Modify in `scan/config.py` or override via `scan/.env`:
 | `MIN_BASE_DAYS` | 5 | 5 | R11 | |
 | `MAX_BASE_DAYS` | 40 | 40 | R11 | |
 | `MAX_BASE_DEPTH_PCT` | **15%** | **20%** | R12 | 🔧 2026-04-27 |
-| `MAX_BASE_VOL_RATIO` | **60%** | **75%** | R19 | 🔧 2026-04-27 |
+| `MAX_BASE_VOL_RATIO` | **60%** | **85%** | R19 | 🔧 2026-04-27 / 2026-04-29 |
 | `MIN_CONSEC_LOW_VOL_DAYS` | 3 | 3 | R20 | |
 | `MAX_DIST_FROM_PIVOT_PCT` | 5% | **8%** | Watchlist trigger | 🔧 2026-04-29 |
 | `MIN_BREAKOUT_30MIN_VOL_RATIO` | — | **3.0×** | R24 (30-min intensity) | 🔧 2026-05-07 |
@@ -98,6 +100,8 @@ Modify in `scan/config.py` or override via `scan/.env`:
 | `MAX_CLOSE_FROM_HIGH_PCT` | 5% | 5% | R25 / ADR3 | |
 | `MIN_ADR_BREAKOUT_MULT` | — | **0.5×** | ADR1 | 🔧 2026-05-11 |
 | `MIN_ADR_BREAKOUT_30MIN_VOL_RATIO` | — | **2.0×** | ADR2 (30-min intensity) | 🔧 2026-05-11 |
+| `MAX_RUNNER_FROM_20D_HIGH` | — (hardcoded 15%) | **10%** | R_RUN1 | 🔧 2026-05-06 |
+| `RUNNER_REQUIRE_PRIOR_MOVE` | — (false) | **true** | R_RUN2 | 🔧 2026-05-06 |
 
 ---
 
@@ -106,7 +110,7 @@ Modify in `scan/config.py` or override via `scan/.env`:
 ```
 R1–R5    Universe Filter         → price ≥ $5, vol ≥ 300k, ADR ≥ 3%
     ↓
-R6a–R6c  Momentum Trend (Stage 2)→ up ≥10%/20%/30% over 1M/3M/6M — NEVER AGES OUT (🔧 2026-04-29)
+R6a–R6c  Momentum Trend (Stage 2)→ up ≥5%/15%/30% over 1M/3M/6M — NEVER AGES OUT (🔧 2026-04-29)
     ↓
 R6–R10   Prior Move (Stage 2b)   → ≥25% in 60 days w/ vol surge — bonus grading only (🔧 2026-04-29)
     ↓

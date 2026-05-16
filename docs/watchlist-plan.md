@@ -64,9 +64,10 @@ A stock enters the daily watchlist if it passes Stage 1–3 and is **approaching
 
 ### Runner Path (Stage 1+2 ✅, Stage 3 ❌)
 - Stocks that pass Stage 1+2 but have **no base yet** go to `runner_entries` instead of being dropped
-- Qualifier: price > MA20 > MA50, within 15% of 20-day high
+- Qualifier: price > MA20 > MA50, within **10%** of 20-day high (`MAX_RUNNER_FROM_20D_HIGH`), AND must have a prior explosive move (`RUNNER_REQUIRE_PRIOR_MOVE=true`)
+- Both gates added 2026-05-06 to reduce list noise; revertable via `scan/.env` (see `docs/runners-plan.md`)
 - Runners flow onto the main watchlist automatically when a base forms — no manual promotion needed
-- See `plans/runners-plan.md` for full detail
+- See `docs/runners-plan.md` for full detail
 
 ---
 
@@ -379,6 +380,89 @@ NVDA    A      $127.50  $130.00  1.9%   FlatBase       45d prior move +38%, base
 | 4 | Install cron job | Fully automated at 8 AM |
 | 5 | Build performance_tracker.py | Tracking outcomes |
 | 6 | Run analysis queries | Start refining criteria |
+
+---
+
+## Runners (Stage 1+2 ✅, Stage 3 ❌)
+
+Stocks that pass Stage 1+2 but have **not yet** formed a consolidation base are captured as *runners* — stocks in active markup that will eventually pause and set up. This avoids silently dropping strong market leaders just because they haven't consolidated yet.
+
+### Runner Criteria (`check_runner_state()`)
+
+| Check | Criterion | Config param |
+|-------|-----------|--------------|
+| **Price > MA20** | Current price above 20-day MA | — |
+| **MA20 > MA50** | 20-day MA above 50-day MA | — |
+| **Near recent high** | Within `MAX_RUNNER_FROM_20D_HIGH`% of 20-day high | `MAX_RUNNER_FROM_20D_HIGH=10.0` (tightened from 15% on 2026-05-06) |
+| **Prior explosive move** | `find_prior_explosive_move()` must return a result | `RUNNER_REQUIRE_PRIOR_MOVE=true` (added 2026-05-06) |
+| **No base detected** | Stage 3 fails — stock has NOT consolidated | — |
+
+Stocks that pass Stage 3 are **not** runners — they go to the main watchlist instead.
+
+**Reverting the 2026-05-06 gates** (no code change needed):
+```env
+RUNNER_REQUIRE_PRIOR_MOVE=false   # removes prior-move requirement
+MAX_RUNNER_FROM_20D_HIGH=15.0     # restores original 15% proximity
+```
+
+### Stage Flow
+
+```
+Stage 1  check_universe_filter()     → pass required
+Stage 2  check_momentum_trend()      → pass required
+Stage 3  find_consolidation_base()   → FAIL (no base yet)
+Runner   check_runner_state()        → price > MA20 > MA50, within 10% of 20d high, prior move required
+         → added to runner_entries (deduplicated on scan_date, ticker)
+```
+
+### What Happens Next
+
+No manual follow-up needed. When a runner forms a base the existing `find_consolidation_base()` detects it and the stock flows into `watchlist_entries` on that future scan day. The breakout scanner also checks `runner_entries` every 30 minutes for same-day base→breakout transitions.
+
+### Database Table: `runner_entries`
+
+```sql
+CREATE TABLE runner_entries (
+    id                  INT IDENTITY PRIMARY KEY,
+    scan_date           DATE NOT NULL,
+    ticker              VARCHAR(10) NOT NULL,
+    price_at_scan       DECIMAL(10,4),
+    pct_1m              DECIMAL(6,2),
+    pct_3m              DECIMAL(6,2),
+    pct_6m              DECIMAL(6,2),
+    pct_from_52w_high   DECIMAL(6,2),
+    pct_from_20d_high   DECIMAL(6,2),
+    prior_move_pct      DECIMAL(6,2),
+    prior_move_days     INT,
+    adr_pct             DECIMAL(5,2),
+    avg_daily_volume    INT,
+    created_at          DATETIME DEFAULT GETDATE()
+);
+-- Unique index on (scan_date, ticker) — deduplication enforced in DB
+```
+
+Performance is tracked in `runner_performance` (1d/5d/10d/20d/60d prices, `did_set_up`, `days_to_setup`, `did_break_out`, `max_gain_pct`).
+
+### Useful Queries
+
+```sql
+-- Today's runners
+SELECT ticker, price_at_scan, pct_1m, pct_3m, pct_6m, pct_from_52w_high
+FROM   runner_entries
+WHERE  scan_date = CAST(GETDATE() AS DATE)
+ORDER  BY pct_3m DESC;
+
+-- How long does it take a runner to set up?
+SELECT r.ticker,
+       MIN(r.scan_date)                                    AS first_runner_date,
+       MIN(w.scan_date)                                    AS first_watchlist_date,
+       DATEDIFF(day, MIN(r.scan_date), MIN(w.scan_date))   AS days_to_base
+FROM   runner_entries r
+JOIN   watchlist_entries w ON r.ticker = w.ticker
+WHERE  w.scan_date > r.scan_date
+GROUP  BY r.ticker
+ORDER  BY days_to_base;
+```
 
 ---
 

@@ -2,7 +2,7 @@
 criteria.py — Qullamaggie breakout setup criteria (Stages 1–5).
 
 Each function corresponds to a numbered rule set in:
-    plans/watchlist-plan.md and plans/breakout-scanner-plan.md
+    docs/watchlist-plan.md and docs/breakout-scanner-plan.md
 
 Rules reference (e.g. R6) match the table in qullamaggie/breakouts/Rules.MD.
 """
@@ -620,15 +620,3 @@ def check_adr_breakout(intraday: dict, df: pd.DataFrame) -> dict | None:
     return {
         "breakout_price":    round(current_price, 4),
         "pivot_price":       round(prev_close, 4),      # prev close is the reference level
-        "pct_above_pivot":   round(move_pct, 2),
-        "breakout_volume":   cum_volume,
-        "volume_ratio":      round(volume_ratio, 2),    # 30-min intensity ratio
-        "candle_close_pct":  round(candle_close_pct, 2),
-        "adr_pct":           round(adr_pct, 2),
-        "adr_mult":          round(move_pct / adr_pct, 2),
-        "last_30min_volume": last_30min_vol,
-        "avg_30min_volume":  avg_30min_vol,
-    }
-
-
-# ─── Qualification Reasons ────────────────────────────────────────────────────

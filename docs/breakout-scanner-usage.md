@@ -10,10 +10,16 @@ The breakout scanner runs **every 30 minutes during market hours** and checks tw
 1. **Today's watchlist** (`watchlist_entries`) — stocks from the 8 AM scan already in a base near the pivot
 2. **Today's runners** (`runner_entries`) — Stage 1+2 passes in active markup (no base yet), checked for same-day base→breakout transitions via `check_runner_breakout()`
 
-A breakout is confirmed when ALL of the following are true:
+A breakout is confirmed when ALL of the following are true (base-pivot path):
 1. **Price > pivot** — current price has crossed above the base high
-2. **Volume ≥ 150% of 20-day average** — institutional buying is present
+2. **Last 30-min candle ≥ 3× avg 30-min volume** — institutional buying intensity detected intraday
 3. **Candle is strong** — current price is within 5% of the session high (not reversing)
+
+A parallel **ADR breakout path** also runs for every stock (watchlist + runners):
+- Move from prev close ≥ 0.5× ADR% (scales with the stock's own volatility)
+- Last 30-min candle ≥ 2× avg 30-min volume
+- Price within 5% of session high
+Base-pivot alerts are labelled `[WL]`/`[RN]`; ADR alerts use `[WL-ADR]`/`[RN-ADR]`.
 
 When a breakout fires, it is:
 - Written to `breakout_entries` in SQL Server (once per ticker per day)
@@ -114,9 +120,9 @@ python3 breakout_scanner.py --force --dry-run
 | Field | Meaning |
 |-------|---------|
 | `$49.80` | Current price at time of detection |
-| `Vol: 3.1x` | Cumulative intraday volume ÷ 20-day average (3.1× = 310% of avg) |
-| `+1.6% above pivot` | How far price is above the base high |
-| `VCP/A+` | Pattern type / setup grade from this morning's watchlist |
+| `Vol: 3.1x` | Last 30-min candle volume ÷ average 30-min volume (3.1× = 310% of avg 30-min bar) |
+| `+1.6% above pivot` | How far price is above the base high (base-pivot path) or prev close (ADR path) |
+| `VCP/A+` | Pattern type / setup grade (base-pivot) or `ADR_MOMENTUM / NxADR` (ADR path) |
 
 ---
 
@@ -296,7 +302,9 @@ thresholds produce the best outcomes and adjust `scan/config.py` (or `scan/.env`
 
 ### Require Stronger Volume (Higher Quality Signal)
 ```env
-MIN_BREAKOUT_VOL_RATIO=2.0    # was 1.5 — only fire on 2x+ volume breakouts
+MIN_BREAKOUT_30MIN_VOL_RATIO=4.0   # was 3.0 — require stronger 30-min candle intensity (base-pivot path)
+MIN_ADR_BREAKOUT_30MIN_VOL_RATIO=3.0  # was 2.0 — require stronger intensity for ADR path
+MIN_ADR_BREAKOUT_MULT=1.0          # was 0.5 — require a full ADR move (not just half)
 ```
 
 ### Require Stronger Candle Close
@@ -342,5 +350,5 @@ tail -100 /home/ubuntu/.openclaw/workspace/stocks-repo/scan/logs/breakout.log
 
 ---
 
-*Last updated: 2026-04-30*
+*Last updated: 2026-05-16 (ADR breakout path added; R24 → 30-min intensity; runner gates; correct config keys)*
 *See also: `watchlist-usage.md`, `breakout-scanner-plan.md`, `runners-plan.md`*
