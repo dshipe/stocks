@@ -63,6 +63,8 @@
 | **R_RUN2** | Runner | Prior move required | — | `find_prior_explosive_move()` must return a result (`RUNNER_REQUIRE_PRIOR_MOVE`) | 🔧 2026-05-06 | ✅ |
 | **R_RUN3** | Runner | Price floor | — | Price ≥ **$10** (`MIN_RUNNER_PRICE`) — filters micro-caps with extreme % moves from tiny base | 🔧 2026-05-16 | ✅ |
 | **R_RUN4** | Runner | Volume floor | — | Avg vol ≥ **500k** (`MIN_RUNNER_AVG_VOLUME`) — ensures liquidity | 🔧 2026-05-16 | ✅ |
+| `MIN_BREAKOUT_GRADE` | -- (all grades) | **B** | Breakout alert filter | 🔧 2026-05-16 |
+| `MIN_HTF_BREAKOUT_GRADE` | -- (all HTF grades) | **A** | HTF alert filter | 🔧 2026-05-16 |
 
 ---
 
@@ -169,3 +171,5 @@ R43–R46  Market Filter        → S&P above MAs, low VIX, sector uptrend
 | 2026-05-16 | Watchlist dedup | Plain INSERT (allowed duplicates) | **WHERE NOT EXISTS guard** in `insert_watchlist_entry()` | Performance analysis found many duplicate (scan_date, ticker) rows inflating counts |
 | 2026-05-16 | `MIN_RUNNER_PRICE` | -- ($5 Stage 1 floor) | **$10** | Micro-caps $5-$10 produced noisy signals with extreme 3M% (e.g. +1294%) from tiny base |
 | 2026-05-16 | `MIN_RUNNER_AVG_VOLUME` | -- (300k Stage 1 floor) | **500k** | Low-float runners are illiquid and hard to trade at meaningful size |
+| 2026-05-16 | `MIN_BREAKOUT_GRADE` | None (all grades alerted) | **B** -- C excluded from breakout alerts | Backtest: C-grade has lower BO rate (50%) and high variance; not worth intraday monitoring |
+| 2026-05-16 | `MIN_HTF_BREAKOUT_GRADE` | None (all HTF grades alerted) | **A** -- HTF/B excluded from breakout alerts | Backtest: HTF/B averages -0.40% at 5d with 36% BO rate; HTF/A+ is best combo in dataset (+12.4% avg 20d) |

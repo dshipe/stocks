@@ -65,6 +65,10 @@ MAX_BASE_DEPTH_PCT=10             # tighter bases only (default 20)
 MIN_BREAKOUT_30MIN_VOL_RATIO=4.0  # require stronger 30-min intensity (default 3.0)
 MAX_RUNNER_FROM_20D_HIGH=15.0     # loosen runner proximity gate (default 10.0)
 RUNNER_REQUIRE_PRIOR_MOVE=false   # remove prior-move requirement from runners
+MIN_BREAKOUT_GRADE=B              # global floor for breakout alerts (A+/A/B pass; C excluded)
+MIN_HTF_BREAKOUT_GRADE=A          # HTF-specific floor (A+/A only; HTF/B excluded — poor backtest)
+MIN_RUNNER_PRICE=10.0             # runner price floor (filters micro-caps, default $10)
+MIN_RUNNER_AVG_VOLUME=500000      # runner volume floor (liquidity gate, default 500k)
 ```
 
 ---
@@ -85,6 +89,15 @@ python breakout_scanner.py --force --dry-run
 
 # Run performance tracker
 python performance_tracker.py --dry-run
+
+# Backtest 1 year on S&P 500 (~2-3 min)
+python backtest_scanner.py --years 1 --universe sp500
+
+# Backtest 2 years on full Nasdaq (~20-30 min)
+python backtest_scanner.py --years 2 --universe full
+
+# Check live performance data from the DB
+python check_performance.py
 ```
 
 ---
@@ -103,6 +116,8 @@ scan/
 ├── breakout_scanner.py        ← 30-min intraday breakout checker (base-pivot + ADR paths)
 ├── performance_tracker.py     ← End-of-day price outcome recorder
 ├── diagnose_ticker.py         ← Debug a single ticker through the full pipeline
+├── backtest_scanner.py        ← Historical backtest (point-in-time, configurable years)
+├── check_performance.py       ← Live performance report from the DB
 │
 ├── schwab_scripts/
 │   ├── schwab_stop_loss.py    ← GTC stop-loss manager (10d SMA, Option B backoff)
@@ -220,5 +235,9 @@ Based on Kristjan Kullamägi (Qullamaggie) momentum breakout methodology:
 - **Stage 4** — Volume contraction — *bonus grading only, not a gate*
 - **Stage 5 (base-pivot)** — Breakout: price > pivot + last 30-min vol ≥ 3× avg 30-min + candle near high
 - **Stage 5 (ADR)** — Parallel path: move ≥ 0.5× ADR% from prev close + 30-min vol ≥ 2× avg
+
+**Breakout alert filters (applied by breakout scanner):**
+- C-grade excluded from all alerts (`MIN_BREAKOUT_GRADE=B`)
+- HTF/B excluded — backtest shows -0.40% avg 5d, 36% BO rate (`MIN_HTF_BREAKOUT_GRADE=A`)
 
 Full methodology: `qullamaggie/breakouts/Rules.MD`

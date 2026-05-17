@@ -76,6 +76,31 @@ MIN_RUNNER_AVG_VOLUME = int(os.getenv("MIN_RUNNER_AVG_VOLUME",   "500000"))
 # R_RUN4: Runner volume floor (tighter than the Stage 1 300k minimum).
 # Rationale: low-float runners are illiquid and hard to trade at meaningful size.
 
+# ─── Breakout Scanner Grade Filter ────────────────────────────────────────────
+# Only watchlist entries at or above this grade are monitored by the breakout
+# scanner and eligible for Telegram alerts.
+# Grades in order: A+ > A > B > C
+# Default: "B" — excludes C-grade setups (low BO rate, not worth alerting)
+# To include all grades: MIN_BREAKOUT_GRADE=C in scan/.env
+# To restrict to A/A+ only: MIN_BREAKOUT_GRADE=A in scan/.env
+_GRADE_ORDER    = {"A+": 0, "A": 1, "B": 2, "C": 3}
+MIN_BREAKOUT_GRADE = os.getenv("MIN_BREAKOUT_GRADE", "B").upper()
+# Resolved to a set of allowed grades for fast lookup:
+BREAKOUT_ALLOWED_GRADES = {
+    g for g, rank in _GRADE_ORDER.items()
+    if rank <= _GRADE_ORDER.get(MIN_BREAKOUT_GRADE, 2)
+}
+
+# HTF-specific grade floor — HTF/B has negative 5d returns (-0.40%) and a 36%
+# BO rate in backtesting. Raise the bar for HTF to A so only high-conviction
+# High-Tight Flags trigger alerts. All other patterns keep their own floor.
+# To revert: MIN_HTF_BREAKOUT_GRADE=B in scan/.env
+MIN_HTF_BREAKOUT_GRADE = os.getenv("MIN_HTF_BREAKOUT_GRADE", "A").upper()
+HTF_ALLOWED_GRADES = {
+    g for g, rank in _GRADE_ORDER.items()
+    if rank <= _GRADE_ORDER.get(MIN_HTF_BREAKOUT_GRADE, 1)
+}
+
 # ─── Stage 4: Volume Contraction ──────────────────────────────────────────────
 MAX_BASE_VOL_RATIO      = float(os.getenv("MAX_BASE_VOL_RATIO",      "0.85")) # R19 — raised from 0.75 (2026-04-29: KLAC, MRVL, BKR etc. failing at 0.75)
 MIN_CONSEC_LOW_VOL_DAYS = int(os.getenv("MIN_CONSEC_LOW_VOL_DAYS",   "3"))    # R20

@@ -163,20 +163,31 @@ def insert_runner_entry(data: dict) -> int | None:
 
 def get_todays_watchlist() -> list[dict]:
     """
-    Return all watchlist entries for today.
+    Return watchlist entries for today that pass grade filters.
+
+    Two grade floors apply:
+      - MIN_BREAKOUT_GRADE (default B): global floor — C excluded for all patterns
+      - MIN_HTF_BREAKOUT_GRADE (default A): HTF-specific floor — HTF/B also excluded
+        Rationale: backtest shows HTF/B averages -0.40% at 5d with 36% BO rate.
 
     Returns list of dicts with: id, ticker, pivot_price, pattern_type, pattern_grade
     """
-    sql = """
+    allowed     = list(cfg.BREAKOUT_ALLOWED_GRADES)
+    htf_allowed = list(cfg.HTF_ALLOWED_GRADES)
+    ph          = ",".join("?" * len(allowed))
+    htf_ph      = ",".join("?" * len(htf_allowed))
+    sql = f"""
         SELECT id, ticker, pivot_price, pattern_type, pattern_grade
         FROM   watchlist_entries
         WHERE  scan_date = CAST(GETDATE() AS DATE)
+          AND  pattern_grade IN ({ph})
+          AND  (pattern_type != 'HTF' OR pattern_grade IN ({htf_ph}))
         ORDER  BY pattern_grade ASC, pct_from_pivot ASC
     """
     try:
         conn   = get_connection()
         cursor = conn.cursor()
-        cursor.execute(sql)
+        cursor.execute(sql, allowed + htf_allowed)
         rows = cursor.fetchall()
         conn.close()
         return [

@@ -42,6 +42,18 @@ Based on Stages 5–8 of `qullamaggie/breakouts/Rules.MD`:
 > had volume ≥ 3x the average 30-min volume. This measures real-time institutional buying intensity
 > rather than extrapolating final daily volume from a partial session.
 
+### Grade Filters (applied before intraday check — added 2026-05-16)
+
+Backtest data (1 year, S&P 500) showed significant performance differences by grade and pattern.
+Two grade floors are now enforced in `get_todays_watchlist()` before any intraday monitoring begins:
+
+| Filter | Default | Rationale |
+|--------|---------|-----------|
+| `MIN_BREAKOUT_GRADE=B` | C excluded | C-grade has 50% BO rate but lower conviction — not worth intraday monitoring |
+| `MIN_HTF_BREAKOUT_GRADE=A` | HTF/B excluded | HTF/B: -0.40% avg 5d, 36% BO rate in backtest. HTF/A+ is the best combo (+12.4% avg 20d, 79% win) |
+
+C-grade entries still appear on the **Telegram watchlist summary** and are written to `watchlist_entries` — they are only excluded from intraday breakout monitoring. Override in `scan/.env`.
+
 ### Preferred (Adds Confidence)
 | Rule | Criterion |
 |------|-----------|

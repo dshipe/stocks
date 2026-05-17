@@ -466,7 +466,7 @@ def main():
         print("  No watchlist or runners for today. Run watchlist_scanner.py first.\n")
         sys.exit(0)
 
-    print(f"  Watchlist stocks : {len(watchlist)}")
+    print(f"  Watchlist stocks : {len(watchlist)}  (grade >= {cfg.MIN_BREAKOUT_GRADE}; HTF grade >= {cfg.MIN_HTF_BREAKOUT_GRADE})")
     print(f"  Runner stocks    : {len(runners)}\n")
 
     # ─── BATCH PRE-FETCH: Collect all tickers and fetch once (OPTIMIZATION) ─────────────────────────────

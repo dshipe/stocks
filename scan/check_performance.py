@@ -180,19 +180,20 @@ ORDER BY ABS(COALESCE(pct_change_10d, pct_change_5d)) DESC
 rows = cur.fetchall()
 if rows:
     print(f"\n=== OUTLIERS (returns >= +/-50% -- verify these are not data errors) ===")
-    print(f"  {'Src':<10} {'Date':<11} {'Ticker':<7} {'Gr':<3} {'Entry':>8} {'1d':>8} {'5d':>8} {'5d%':>7} {'10d':>8} {'10d%':>7}")
-    print("  " + "-" * 80)
+    print(f"  {'Src':<10} {'Date':<11} {'Ticker':<7} {'Gr':<3} {'Entry$':>8} {'$1d':>8} {'$5d':>8} {'5d%':>8} {'$10d':>8} {'10d%':>8}")
+    print("  " + "-" * 86)
+    dollar = lambda v: f"${v:.2f}" if v is not None else "  —"
     seen = set()
     for src, sd, tk, gr, d5, d10, entry, p1, p5, p10 in rows:
         key = (src, str(sd), tk)
         if key in seen:
             continue
         seen.add(key)
-        gr   = gr or "-"
+        gr = gr or "-"
         print(
             f"  {src:<10} {str(sd)[:10]:<10} {tk:<6} {gr:<3} "
-            f"{fmt(entry):>9} {fmt(p1):>9} {fmt(p5):>9} {fmt(d5):>8} "
-            f"{fmt(p10):>9} {fmt(d10):>8}"
+            f"{dollar(entry):>8} {dollar(p1):>8} {dollar(p5):>8} {fmt(d5):>8} "
+            f"{dollar(p10):>8} {fmt(d10):>8}"
         )
     print(f"\n  Action: for each ticker above, verify the price data is correct.")
     print(f"  Common causes: reverse splits, spinoffs, special dividends, ticker reuse.")

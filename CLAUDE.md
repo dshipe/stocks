@@ -18,6 +18,12 @@ python3 breakout_scanner.py --force --dry-run
 # Performance tracker (end-of-day)
 python3 performance_tracker.py --dry-run
 
+# Backtest (1 year, S&P 500)
+python3 backtest_scanner.py --years 1 --universe sp500
+
+# Check live performance data
+python3 check_performance.py
+
 # Install cron jobs
 chmod +x cron_setup.sh && ./cron_setup.sh
 ```
@@ -77,6 +83,10 @@ Key params:
 - `MAX_DIST_FROM_PIVOT_PCT` — watchlist trigger proximity (8%)
 - `MAX_BASE_DEPTH_PCT` — Stage 3 base tightness (20%)
 - `MAX_BASE_VOL_RATIO` — Stage 4 volume contraction (0.85) — grading signal only, not a gate
+- `MIN_BREAKOUT_GRADE` — global grade floor for breakout alerts (default B — C excluded)
+- `MIN_HTF_BREAKOUT_GRADE` — HTF-specific floor (default A — HTF/B excluded; backtest shows -0.40% avg 5d)
+- `MIN_RUNNER_PRICE` — runner price floor (default $10, tighter than Stage 1 $5)
+- `MIN_RUNNER_AVG_VOLUME` — runner volume floor (default 500k, tighter than Stage 1 300k)
 
 ## Key Conventions
 
@@ -105,14 +115,28 @@ does not drop a stock. Do not revert this to a gate.
 
 - `docs/Rules-Reference.MD` — complete rules table (R1–R46), thresholds, change log
 - `docs/watchlist-plan.md` — design decisions, rationale, historical changes, runners section
-- `docs/breakout-scanner-plan.md` — breakout scanner design, ADR path, implementation history
+- `docs/breakout-scanner-plan.md` — breakout scanner design, ADR path, grade filters, implementation history
 - `docs/schwab-integration.md` — stop-loss manager + watchlist sync (auth, rate limits, scheduling)
+- `docs/how-to-trade.md` — practical trading guide (when to buy, grade/pattern guidance, exit rules)
+- `docs/performance-analysis.md` — live and backtest performance findings, action items
 - `qullamaggie/breakouts/Rules.MD` — source methodology
+
+## Backtest
+
+`scan/backtest_scanner.py` runs the full Stage 1–4 pipeline against historical data:
+- Point-in-time simulation (no look-ahead bias — slices data to each trading day)
+- Measures 1d/5d/10d/20d forward returns for all qualifying entries
+- Reports by grade, pattern, and quarter; saves full results to CSV
+
+Key 1-year backtest findings (S&P 500, May 2025 – Apr 2026):
+- **A+ grade**: +12.4% avg 20d, 79% win rate — act on every alert
+- **FlatBase (A/A+)**: +11.5% avg 20d, 73% BO rate — best pattern at higher grades
+- **HTF/B**: -0.40% avg 5d, 36% BO rate — excluded from alerts by default
+- **Q1 2026 (choppy market)**: avg 20d only +0.22% — market regime matters
 
 ## Tech Debt
 
 - No market holiday calendar (`is_market_open()` uses weekday only)
-- No dedup constraint on `watchlist_entries(scan_date, ticker)`
-- No backtesting harness — criteria changes validated on current data only
+- No dedup constraint on `watchlist_entries(scan_date, ticker)` at the DB schema level (inserts are deduplicated in code via WHERE NOT EXISTS)
 - `tickers_nasdaq()` from yahoo_fin returns all Nasdaq-listed stocks (~5,000+); no pre-screen
-  by market cap or price before the bulk download. St
+  by market cap or price before the bulk download. Stage 1 drops most, but the download is wide.
