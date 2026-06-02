@@ -475,6 +475,7 @@ def main():
     histories = {}
     intradays = {}
     successful = 0
+    failed_tickers = []
     for ticker in all_tickers:
         try:
             histories[ticker] = fetch_history(ticker, days=60)
@@ -482,10 +483,18 @@ def main():
             if histories[ticker] is not None:
                 successful += 1
         except Exception as e:
-            logger.debug(f"Pre-fetch error for {ticker}: {e}")
+            logger.warning(f"Pre-fetch error for {ticker}: {e}")
+            failed_tickers.append((ticker, str(e)))
             histories[ticker] = None
             intradays[ticker] = None
-    print(f"  Pre-fetch complete ({successful}/{len(all_tickers)} successful)\n")
+    print(f"  Pre-fetch complete ({successful}/{len(all_tickers)} successful)")
+    if failed_tickers:
+        print(f"  Failed tickers ({len(failed_tickers)}):")
+        for ticker, error in failed_tickers[:10]:  # Show first 10 failures
+            print(f"    - {ticker}: {error}")
+        if len(failed_tickers) > 10:
+            print(f"    ... and {len(failed_tickers) - 10} more")
+    print()
 
     # Pre-fetch SPY context once (shared for all stocks) — CACHE AVOIDS 163+ REDUNDANT FETCHES
     sp500_ctx = get_sp500_context()
