@@ -1,0 +1,106 @@
+{
+  "ticker": "NVDA",
+  "period": "2026-03-30 to 2026-06-25",
+  "trading_days": 61,
+  "ema_period": 9,
+  "exit_rules": [
+    "stop-loss at trigger candle low/high",
+    "9-EMA direction flip"
+  ],
+  "trades_91": [
+    {
+      "setup": "9.1",
+      "direction": "SHORT",
+      "signal_date": "2026-04-30",
+      "entry_date": "2026-05-01",
+      "entry_price": 198.45,
+      "stop": 210.3,
+      "risk": 11.85,
+      "exit_date": "2026-05-06",
+      "exit_price": 207.83,
+      "pnl": -9.38,
+      "r_multiple": -0.79,
+      "result": "EMA_FLIP",
+      "hold_days": 3
+    },
+    {
+      "setup": "9.1",
+      "direction": "SHORT",
+      "signal_date": "2026-05-21",
+      "entry_date": "2026-05-22",
+      "entry_price": 215.33,
+      "stop": 227.4,
+      "risk": 12.07,
+      "exit_date": "2026-06-01",
+      "exit_price": 224.36,
+      "pnl": -9.03,
+      "r_multiple": -0.75,
+      "result": "EMA_FLIP",
+      "hold_days": 5
+    },
+    {
+      "setup": "9.1",
+      "direction": "SHORT",
+      "signal_date": "2026-06-03",
+      "entry_date": "2026-06-05",
+      "entry_price": 205.1,
+      "stop": 222.82,
+      "risk": 17.72,
+      "exit_date": "2026-06-15",
+      "exit_price": 212.45,
+      "pnl": -7.35,
+      "r_multiple": -0.41,
+      "result": "EMA_FLIP",
+      "hold_days": 6
+    },
+    {
+      "setup": "9.1",
+      "direction": "SHORT",
+      "signal_date": "2026-06-16",
+      "entry_date": "2026-06-17",
+      "entry_price": 204.65,
+      "stop": 211.49,
+      "risk": 6.84,
+      "exit_date": "2026-06-18",
+      "exit_price": 210.69,
+      "pnl": -6.04,
+      "r_multiple": -0.88,
+      "result": "EMA_FLIP",
+      "hold_days": 1
+    },
+    {
+      "setup": "9.1",
+      "direction": "SHORT",
+      "signal_date": "2026-06-23",
+      "entry_date": "2026-06-24",
+      "entry_price": 199.0,
+      "stop": 203.77,
+      "risk": 4.77,
+      "exit_date": "2026-06-25",
+      "exit_price": 195.74,
+      "pnl": 3.26,
+      "r_multiple": 0.68,
+      "result": "OPEN",
+      "hold_days": 1
+    }
+  ],
+  "trades_92": [],
+  "trades_92_sma20_filter": [],
+  "summary": {
+    "setup_91": {
+      "closed": 4,
+      "open": 1,
+      "wins": 0,
+      "losses": 4,
+      "win_rate_pct": 0.0,
+      "total_pnl": -31.8,
+      "avg_win": 0,
+      "avg_loss": -7.95,
+      "avg_r": -0.71,
+      "profit_factor": 0.0,
+      "avg_hold_days": 3.8
+    },
+    "setup_92_no_filter": {},
+    "setup_92_sma20_filter": {}
+  }
+}

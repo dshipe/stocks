@@ -134,6 +134,29 @@ MIN_ADR_BREAKOUT_30MIN_VOL_RATIO = float(os.getenv("MIN_ADR_BREAKOUT_30MIN_VOL_R
 # Note: daily cumulative volume cannot be used at 10 AM — it will never exceed yesterday's full-day vol.
 # The 30-min intensity check (same approach as R24) is the correct intraday proxy.
 
+# "avg 30-min volume" is a historical baseline, not today's own bars (fixed 2026-07-08 —
+# was previously averaging today's bars against themselves, which made R24/ADR2 nearly
+# impossible to satisfy). Baseline = avg volume per time-of-day slot over the trailing
+# N trading days, fetched via 30m-interval history (Yahoo caps 30m interval at 60 days).
+INTRADAY_VOL_BASELINE_LOOKBACK_DAYS = int(os.getenv("INTRADAY_VOL_BASELINE_LOOKBACK_DAYS", "20"))
+
+# ─── Stage 8: Market Conditions Filter (added 2026-07-08) ───────────────────
+# R43-R46 in Rules.MD were previously recorded as metadata (sp500_above_50d_ma /
+# sp500_above_200d_ma) but never actually gated a trade — and the metadata itself
+# was silently broken (get_sp500_context() threw on a missing 'ma200' column and
+# fell back to {} every time, so those fields were always NULL).
+#
+# Implemented here: R43 (SPY above both 50d and 200d MA) and R45 (VIX below
+# threshold). NOT implemented: R44 (distribution-day detection) and R46 (sector
+# trend) — both need data sources (sector ETF mapping, distribution-day counting)
+# that don't exist in this codebase yet.
+#
+# Fails OPEN when SPY/VIX data can't be fetched (a data hiccup shouldn't halt
+# every alert) — only blocks when the data is available and unfavorable.
+# To disable entirely: ENABLE_MARKET_FILTER=false in scan/.env
+ENABLE_MARKET_FILTER = os.getenv("ENABLE_MARKET_FILTER", "true").lower() == "true"
+MAX_VIX_LEVEL        = float(os.getenv("MAX_VIX_LEVEL", "30.0"))  # R45 — VIX < 30 preferred
+
 # ─── Notifications (optional) ─────────────────────────────────────────────────
 TWILIO_SID      = os.getenv("TWILIO_SID",   "")
 TWILIO_TOKEN    = os.getenv("TWILIO_TOKEN", "")

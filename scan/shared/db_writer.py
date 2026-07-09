@@ -308,6 +308,76 @@ def insert_breakout_entry(data: dict) -> int | None:
         return None
 
 
+# ─── Profit Target Alerts (R36/R38 — alert-only, no live orders) ──────────────
+
+def get_latest_breakout_entry(ticker: str, lookback_days: int = 90) -> dict | None:
+    """
+    Most recent breakout_entries row for a ticker within lookback_days, used as
+    the entry/stop/risk reference for check_profit_targets.py's R-multiple math.
+
+    Returns None if the ticker has no tracked breakout entry (e.g. the position
+    predates this system, or wasn't sourced from an alert) — the caller should
+    skip the position rather than guess at a risk level.
+    """
+    sql = """
+        SELECT TOP 1 id, ticker, scan_date, breakout_price, stop_price, risk_per_share
+        FROM breakout_entries
+        WHERE ticker = ?
+          AND scan_date >= DATEADD(day, -?, CAST(GETDATE() AS DATE))
+          AND stop_price IS NOT NULL
+          AND risk_per_share IS NOT NULL
+        ORDER BY scan_date DESC, id DESC
+    """
+    try:
+        conn   = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(sql, (ticker, lookback_days))
+        row = cursor.fetchone()
+        conn.close()
+        if not row:
+            return None
+        return {
+            "id":              row[0],
+            "ticker":          row[1],
+            "scan_date":       row[2],
+            "breakout_price":  float(row[3]) if row[3] is not None else None,
+            "stop_price":      float(row[4]) if row[4] is not None else None,
+            "risk_per_share":  float(row[5]) if row[5] is not None else None,
+        }
+    except Exception as e:
+        logger.error(f"get_latest_breakout_entry({ticker}): {e}")
+        return None
+
+
+def profit_target_already_alerted(breakout_id: int, r_level: float) -> bool:
+    """Return True if this breakout_id has already been alerted at this R-level."""
+    sql = "SELECT COUNT(*) FROM profit_target_alerts WHERE breakout_id = ? AND r_level = ?"
+    try:
+        conn   = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(sql, (breakout_id, r_level))
+        count = cursor.fetchone()[0]
+        conn.close()
+        return count > 0
+    except Exception as e:
+        logger.error(f"profit_target_already_alerted({breakout_id}, {r_level}): {e}")
+        return False
+
+
+def mark_profit_target_alerted(breakout_id: int, ticker: str, r_level: float, r_multiple: float) -> None:
+    """Record that a profit-target alert was sent, so it isn't repeated on the next run."""
+    sql = """
+        INSERT INTO profit_target_alerts (breakout_id, ticker, r_level, r_multiple)
+        VALUES (?, ?, ?, ?)
+    """
+    try:
+        conn   = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(sql, (breakout_id, ticker, r_level, r_multiple))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"mark_profit_target_alerted({ticker}, {r_level}): {e}")
 
 
 def get_todays_runners() -> list[dict]:

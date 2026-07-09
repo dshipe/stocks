@@ -67,6 +67,47 @@ def get_close_on_or_after(df: pd.DataFrame, target_date: date) -> float | None:
     return float(subset["Close"].iloc[0])
 
 
+def get_close_on_date(df: pd.DataFrame, target_date: date) -> float | None:
+    """Exact-date close if present, else the next available trading day's close."""
+    exact = df[df.index.date == target_date]
+    if not exact.empty:
+        return float(exact["Close"].iloc[0])
+    return get_close_on_or_after(df, target_date)
+
+
+def rebase_for_splits(df: pd.DataFrame, entry_date: date, stored_entry_price: float | None,
+                       *other_prices: float | None) -> tuple[float | None, float, list]:
+    """
+    Re-derive the entry price from `df` itself instead of trusting a value stored
+    at scan time, and rescale any other stored price levels (stop, pivot, ...) by
+    the same ratio.
+
+    Why: yfinance retroactively adjusts an entire history for splits every time
+    it's fetched. entry_price gets written to the DB once, at scan time — before
+    a future split exists to adjust for. When performance_tracker later re-fetches
+    history (now split-adjusted), comparing that OLD raw entry_price against NEW
+    adjusted closes produces a fake cliff. Example: KLAC did a 10-for-1 split on
+    2026-06-12; entries stored ~$1800-2000 pre-split were compared against
+    post-split closes ~$180-200, showing a fabricated ~-90% "loss".
+
+    Deriving entry_price from the same `df` call as the exit prices guarantees
+    both sides are on the same adjustment basis, regardless of any split that
+    happens between entry_date and whenever this runs. The implied split_ratio
+    (stored / adjusted) is then applied to `other_prices` (e.g. stop_price,
+    pivot_price) so everything stays internally consistent.
+
+    Returns (adjusted_entry_price, split_ratio, [rescaled other_prices]).
+    Falls back to the stored values unchanged if entry_date isn't in `df` at all.
+    """
+    adjusted_entry = get_close_on_date(df, entry_date)
+    if not adjusted_entry or not stored_entry_price or stored_entry_price <= 0:
+        return stored_entry_price, 1.0, list(other_prices)
+
+    split_ratio = stored_entry_price / adjusted_entry
+    rescaled = [p / split_ratio if p else p for p in other_prices]
+    return adjusted_entry, split_ratio, rescaled
+
+
 def pct_change(entry_price: float, current_price: float) -> float | None:
     if entry_price and entry_price > 0 and current_price:
         return round(((current_price - entry_price) / entry_price) * 100, 2)
@@ -95,6 +136,13 @@ def update_watchlist_entries(dry_run: bool = False) -> int:
         if df is None:
             logger.warning(f"Could not fetch history for {ticker}")
             continue
+
+        # Re-derive entry_price (and rescale pivot_price) from this same fetch so
+        # a split between scan_date and now can't produce a fake cliff — see
+        # rebase_for_splits() docstring.
+        entry_price, _split_ratio, (pivot_price,) = rebase_for_splits(
+            df, scan_date, entry_price, pivot_price
+        )
 
         # Price at each interval
         def get_price(n: int) -> float | None:
@@ -185,6 +233,9 @@ def update_runner_entries(dry_run: bool = False) -> int:
         if df is None:
             logger.warning(f"Could not fetch history for runner {ticker}")
             continue
+
+        # Re-derive entry_price from this same fetch — see rebase_for_splits() docstring.
+        entry_price, _split_ratio, _ = rebase_for_splits(df, scan_date, entry_price)
 
         def get_price(n: int) -> float | None:
             target = trading_day_offset(scan_date, n)
@@ -278,6 +329,14 @@ def update_breakout_entries(dry_run: bool = False) -> int:
         if df is None:
             logger.warning(f"Could not fetch history for {ticker}")
             continue
+
+        # Re-derive entry_price (and rescale stop_price/pivot_price) from this same
+        # fetch — see rebase_for_splits() docstring. Critical here: hit_stop and
+        # max_r_multiple below compare stop_price directly against df's High/Low,
+        # so a stale pre-split stop_price would corrupt both.
+        entry_price, _split_ratio, (stop_price, pivot_price) = rebase_for_splits(
+            df, breakout_date, entry_price, stop_price, pivot_price
+        )
 
         def get_price(n: int) -> float | None:
             target = trading_day_offset(breakout_date, n)

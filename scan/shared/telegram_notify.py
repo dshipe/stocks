@@ -204,6 +204,28 @@ def send_breakout_alert(breakout: dict) -> bool:
     return _send(msg.strip())
 
 
+# ─── Profit Target Alerts (Rules.MD R36/R38 — alert-only) ────────────────────
+
+def send_profit_target_alert(ticker: str, r_level: float, r_multiple: float,
+                              current_price: float, entry_price: float,
+                              qty: int, sell_pct: int, action: str) -> bool:
+    """
+    Alert that an open position has crossed a profit-taking R-level.
+
+    This is alert-only — no order is placed. `action` describes what Rules.MD
+    recommends (e.g. "Sell 40%, move stop to breakeven (R36/R37)").
+    """
+    shares_to_sell = round(qty * sell_pct / 100)
+    msg = (
+        f"🎯 <b>PROFIT TARGET — {ticker}</b>  {r_level:.0f}R hit ({r_multiple:.1f}R actual)\n\n"
+        f"   Entry: ${entry_price:.2f}  →  Now: ${current_price:.2f}\n"
+        f"   Position: {qty} shares\n\n"
+        f"   <b>{action}</b>\n"
+        f"   ≈ {shares_to_sell} of {qty} shares — you place the order manually."
+    )
+    return _send(msg.strip())
+
+
 # ─── Breakout Scan Summary (end of day / no breakouts) ───────────────────────
 
 def send_breakout_scan_summary(scan_date: str, watchlist_count: int, breakout_count: int) -> bool:

@@ -238,6 +238,37 @@ ELSE
     PRINT 'Table already exists: breakout_performance';
 GO
 
+-- ─── profit_target_alerts ────────────────────────────────────────────────────
+-- Dedup log for check_profit_targets.py (Rules.MD R36/R38 — 2R/3R profit-taking
+-- alerts on live Schwab positions). One row per (breakout_id, r_level) so a
+-- position doesn't get re-alerted for the same R-level on every run.
+-- Alert-only: no orders are placed automatically, this just tracks what has
+-- already been sent to Telegram.
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.objects
+    WHERE object_id = OBJECT_ID(N'[dbo].[profit_target_alerts]')
+    AND type IN (N'U')
+)
+BEGIN
+    CREATE TABLE [dbo].[profit_target_alerts] (
+        id          INT IDENTITY(1,1) PRIMARY KEY,
+        breakout_id INT           NOT NULL,
+        ticker      VARCHAR(10)   NOT NULL,
+        r_level     DECIMAL(3,1)  NOT NULL,   -- 2.0 (R36) or 3.0 (R38)
+        r_multiple  DECIMAL(6,2)  NULL,       -- actual R-multiple at alert time
+        alerted_at  DATETIME DEFAULT GETDATE(),
+
+        CONSTRAINT FK_profit_target_alerts_entry
+            FOREIGN KEY (breakout_id) REFERENCES breakout_entries(id)
+    );
+
+    PRINT 'Created table: profit_target_alerts';
+END
+ELSE
+    PRINT 'Table already exists: profit_target_alerts';
+GO
+
 -- ─── Indexes ───────────────────────────────────────────────────────────────
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_watchlist_entries_scan_date_ticker')
@@ -268,6 +299,11 @@ GO
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_breakout_performance_breakout_id')
     CREATE INDEX IX_breakout_performance_breakout_id
         ON breakout_performance (breakout_id);
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_profit_target_alerts_breakout_r')
+    CREATE UNIQUE INDEX IX_profit_target_alerts_breakout_r
+        ON profit_target_alerts (breakout_id, r_level);
 GO
 
 

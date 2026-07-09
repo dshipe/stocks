@@ -481,8 +481,18 @@ def grade_setup(
             score += 1
     # No vol_contraction → no bonus, stock still qualifies
 
-    # Pattern bonus
-    if pattern_type in ("VCP", "HTF"):
+    # Pattern bonus — VCP only (fixed 2026-07-08).
+    # Previously included HTF, but that directly contradicted the rest of the
+    # system: MIN_HTF_BREAKOUT_GRADE=A exists specifically because backtesting
+    # showed HTF/B has -0.40% avg 5d return and a 36% breakout rate (see
+    # config.py). Giving HTF setups a free +1 score made it EASIER for weak
+    # HTF/B setups to cross into grade A — undermining the very floor meant to
+    # filter them out. Live trade-simulation data confirmed this: HTF was the
+    # worst-performing pattern by avg P&L despite receiving the same bonus as
+    # VCP (the historically best-performing, highest win-rate pattern). The
+    # source rubric (qullamaggie/breakouts/Index.MD, vcp_setup.MD) only
+    # describes this as a VCP-quality bonus in the first place.
+    if pattern_type == "VCP":
         score += 1
 
     # MA alignment bonus
@@ -638,6 +648,45 @@ def check_adr_breakout(intraday: dict, df: pd.DataFrame) -> dict | None:
         "last_30min_volume": last_30min_vol,
         "avg_30min_volume":  avg_30min_vol,
     }
+
+
+# ─── Stage 8: Market Conditions Filter ───────────────────────────────────────
+
+def check_market_conditions(sp500_context: dict) -> dict:
+    """
+    Stage 8: Only trade breakouts in favorable broad-market conditions.
+
+    Implements:
+        R43 — S&P 500 above both its 50-day and 200-day moving averages
+        R45 — VIX below cfg.MAX_VIX_LEVEL (default 30)
+
+    NOT implemented (need data sources this codebase doesn't have yet):
+        R44 — distribution-day detection (would need a rolling count of
+              high-volume down days on SPY/QQQ)
+        R46 — sector trend (would need a ticker→sector mapping plus sector
+              ETF history)
+
+    Fails OPEN on missing data: if sp500_above_50d_ma/200d_ma or vix_level are
+    None (fetch failed), that check is skipped rather than treated as a fail —
+    a data hiccup shouldn't silently block every alert.
+
+    Returns {"ok": bool, "reasons": [str, ...]} — reasons is empty when ok=True,
+    otherwise lists which sub-rule(s) failed.
+    """
+    reasons = []
+
+    above_50d  = sp500_context.get("sp500_above_50d_ma")
+    above_200d = sp500_context.get("sp500_above_200d_ma")
+    if above_50d is False:
+        reasons.append("R43: SPY below 50-day MA")
+    if above_200d is False:
+        reasons.append("R43: SPY below 200-day MA")
+
+    vix_level = sp500_context.get("vix_level")
+    if vix_level is not None and vix_level >= cfg.MAX_VIX_LEVEL:
+        reasons.append(f"R45: VIX {vix_level:.1f} >= {cfg.MAX_VIX_LEVEL:.1f}")
+
+    return {"ok": len(reasons) == 0, "reasons": reasons}
 
 
 # ─── Qualification Reasons ────────────────────────────────────────────────────

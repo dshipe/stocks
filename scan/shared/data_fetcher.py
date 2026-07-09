@@ -16,6 +16,8 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 
+import config as cfg
+
 # ─── Constants ────────────────────────────────────────────────────────────────
 BULK_BATCH_SIZE = 200   # tickers per yf.download() call
 
@@ -212,6 +214,51 @@ def fetch_history(ticker: str, days: int = 365) -> pd.DataFrame | None:
         return None
 
 
+def fetch_intraday_volume_baseline(ticker: str, lookback_days: int = None) -> dict:
+    """
+    Historical average volume per 30-min time-of-day slot (e.g. 9:30, 10:00, ...),
+    used as the baseline for the intraday volume-intensity checks (R24/ADR2).
+
+    Volume naturally follows a U-shape through the day (heavy at the open and
+    close, lighter at midday), so the baseline is bucketed by time-of-day rather
+    than a single flat average — comparing the current 9:35 candle against a
+    historical 9:30 average, not against a midday average.
+
+    Fetches 30m-interval history (Yahoo caps this interval at 60 days) and keeps
+    the trailing `lookback_days` *completed* trading days (today's partial session
+    is excluded so the baseline never includes the candle being tested).
+
+    Returns {time(HH:MM:SS): avg_volume} — empty dict on failure.
+    """
+    if lookback_days is None:
+        lookback_days = cfg.INTRADAY_VOL_BASELINE_LOOKBACK_DAYS
+    try:
+        tk = yf.Ticker(ticker)
+        df = tk.history(period="60d", interval="30m")
+        if df is None or df.empty:
+            return {}
+
+        df.index = pd.to_datetime(df.index).tz_localize(None)
+        df = df[df["Volume"] > 0]
+
+        # Exclude today's partial session — the baseline must be independent of
+        # the candle it's being compared against.
+        today = pd.Timestamp.today().normalize()
+        df = df[df.index.normalize() < today]
+        if df.empty:
+            return {}
+
+        # Keep only the trailing N completed trading days.
+        trading_days = sorted(df.index.normalize().unique())
+        if len(trading_days) > lookback_days:
+            df = df[df.index.normalize() >= trading_days[-lookback_days]]
+
+        return df.groupby(df.index.time)["Volume"].mean().to_dict()
+    except Exception as e:
+        logger.debug(f"fetch_intraday_volume_baseline({ticker}): {e}")
+        return {}
+
+
 def fetch_intraday(ticker: str) -> dict | None:
     """
     Fetch today's intraday data for a ticker (1-minute candles).
@@ -223,12 +270,20 @@ def fetch_intraday(ticker: str) -> dict | None:
         cum_volume          — cumulative shares traded today
         candle_close_pct    — how close current price is to session high (%)
         last_30min_volume   — volume in the most recent 30-min candle
-        avg_30min_volume    — average volume per 30-min period (across trading hours)
+        avg_30min_volume    — historical average volume for that same time-of-day
+                              slot over the trailing N trading days (see
+                              fetch_intraday_volume_baseline)
 
     Returns None on failure or if market is not open.
-    
+
     **OPTIMIZATION (2026-05-07):** Added 30-min volume metrics to check intraday intensity
     instead of cumulative daily volume, which is unknown at 10:00 AM.
+
+    **FIX (2026-07-08):** avg_30min_volume previously averaged today's own 30-min
+    bars — a self-referential baseline that made the R24/ADR2 volume-ratio checks
+    almost mathematically impossible to satisfy (the average always included the
+    candle being tested). Now sourced from fetch_intraday_volume_baseline(), a
+    genuine historical per-time-slot average.
     """
     try:
         tk = yf.Ticker(ticker)
@@ -249,15 +304,23 @@ def fetch_intraday(ticker: str) -> dict | None:
             candle_close_pct = 999.0
 
         # ── 30-min volume metrics (for intraday intensity check) ──────────────────────
-        # Resample 1-min candles to 30-min bars to check recent volume intensity
+        # Resample 1-min candles to 30-min bars to find the most recent candle's volume
         df_30m = df.resample("30T").agg({"Volume": "sum"})
         df_30m = df_30m[df_30m["Volume"] > 0]  # only trading periods
-        
+
         last_30min_volume = 0
         avg_30min_volume = 0
         if not df_30m.empty:
             last_30min_volume = int(df_30m["Volume"].iloc[-1])
-            avg_30min_volume = int(df_30m["Volume"].mean())
+            last_slot_time = df_30m.index[-1].time()
+
+            baseline = fetch_intraday_volume_baseline(ticker)
+            if last_slot_time in baseline:
+                avg_30min_volume = int(baseline[last_slot_time])
+            elif baseline:
+                # Exact slot missing (e.g. early-close session) — fall back to the
+                # baseline's overall mean rather than leaving the check un-gateable.
+                avg_30min_volume = int(sum(baseline.values()) / len(baseline))
 
         return {
             "current_price":       current_price,
@@ -280,7 +343,7 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     Add technical indicator columns to a daily OHLCV DataFrame.
 
     Adds:
-        ma10, ma20, ma50          — simple moving averages of Close
+        ma10, ma20, ma50, ma200   — simple moving averages of Close
         avg_vol_20d, avg_vol_50d  — rolling average volume
         atr_14                    — 14-day Average True Range
         adr_pct                   — Average Daily Range % (20-day avg of (H-L)/L*100)
@@ -288,9 +351,10 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
     # Moving averages
-    df["ma10"] = df["Close"].rolling(10).mean()
-    df["ma20"] = df["Close"].rolling(20).mean()
-    df["ma50"] = df["Close"].rolling(50).mean()
+    df["ma10"]  = df["Close"].rolling(10).mean()
+    df["ma20"]  = df["Close"].rolling(20).mean()
+    df["ma50"]  = df["Close"].rolling(50).mean()
+    df["ma200"] = df["Close"].rolling(200).mean()  # R43 — broad market trend filter
 
     # Volume averages
     df["avg_vol_20d"] = df["Volume"].rolling(20).mean()

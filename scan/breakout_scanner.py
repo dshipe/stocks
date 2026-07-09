@@ -46,6 +46,7 @@ from shared.criteria import (
     check_volume_contraction,
     check_breakout,
     check_adr_breakout,
+    check_market_conditions,
     build_qualification_reasons,
     detect_pattern_type,
     grade_setup,
@@ -75,36 +76,46 @@ _sp500_context_cache_time = None
 
 def get_sp500_context(force_refresh: bool = False) -> dict:
     """
-    Fetch current S&P 500 (SPY) trend for market condition context.
-    Returns dict with above_50d_ma and above_200d_ma flags.
+    Fetch current market condition context: S&P 500 (SPY) trend + VIX level.
+    Returns dict with sp500_above_50d_ma, sp500_above_200d_ma, and vix_level.
     **OPTIMIZED:** Caches result for 5 minutes to avoid redundant fetches during scan.
+
+    **FIX (2026-07-08):** days=250 calendar days (~170-190 trading days) was not
+    enough history for a 200-day rolling MA — every call hit a KeyError on
+    'ma200' and silently fell back to {}, so these fields were always NULL.
+    Bumped to 400 days (~275 trading days) so ma200 actually has enough data.
     """
     global _sp500_context_cache, _sp500_context_cache_time
-    
+
     now = time_module.time()
-    if (_sp500_context_cache is not None and 
-        _sp500_context_cache_time is not None and 
-        not force_refresh and 
+    if (_sp500_context_cache is not None and
+        _sp500_context_cache_time is not None and
+        not force_refresh and
         (now - _sp500_context_cache_time) < 300):  # 5-minute cache
         return _sp500_context_cache
-    
+
+    result = {}
     try:
-        df = fetch_history("SPY", days=250)
-        if df is None:
-            return {}
-        df = compute_indicators(df)
-        last = df.iloc[-1]
-        close = float(last["Close"])
-        result = {
-            "sp500_above_50d_ma":  close > float(last["ma50"])  if not pd.isna(last["ma50"]) else None,
-            "sp500_above_200d_ma": close > float(last["ma200"]) if not pd.isna(last["ma200"]) else None,
-        }
-        _sp500_context_cache = result
-        _sp500_context_cache_time = now
-        return result
+        df = fetch_history("SPY", days=400)
+        if df is not None:
+            df = compute_indicators(df)
+            last = df.iloc[-1]
+            close = float(last["Close"])
+            result["sp500_above_50d_ma"]  = close > float(last["ma50"])  if not pd.isna(last["ma50"])  else None
+            result["sp500_above_200d_ma"] = close > float(last["ma200"]) if not pd.isna(last["ma200"]) else None
     except Exception as e:
         logger.warning(f"SPY context fetch failed: {e}")
-        return {}
+
+    try:
+        vix_df = fetch_history("^VIX", days=10)
+        if vix_df is not None and not vix_df.empty:
+            result["vix_level"] = round(float(vix_df["Close"].iloc[-1]), 2)
+    except Exception as e:
+        logger.warning(f"VIX fetch failed: {e}")
+
+    _sp500_context_cache = result
+    _sp500_context_cache_time = now
+    return result
 
 
 def send_notification(ticker: str, breakout: dict, entry: dict) -> None:
@@ -193,7 +204,7 @@ def _build_adr_breakout_entry(ticker: str, adr_result: dict, df,
         "catalyst_notes":           None,
         "sp500_above_50d_ma":       sp500_context.get("sp500_above_50d_ma"),
         "sp500_above_200d_ma":      sp500_context.get("sp500_above_200d_ma"),
-        "vix_level":                None,
+        "vix_level":                sp500_context.get("vix_level"),
         "sector_trend":             None,
         "qualification_reasons":    f'["ADR momentum: +{adr_result["pct_above_pivot"]:.1f}% '
                                     f'({adr_result["adr_mult"]:.1f}x ADR={adr_result["adr_pct"]:.1f}%) '
@@ -322,7 +333,7 @@ def check_ticker_breakout(watchlist_entry: dict,
         "catalyst_notes":           None,
         "sp500_above_50d_ma":       sp500_context.get("sp500_above_50d_ma"),
         "sp500_above_200d_ma":      sp500_context.get("sp500_above_200d_ma"),
-        "vix_level":                None,
+        "vix_level":                sp500_context.get("vix_level"),
         "sector_trend":             None,
         "qualification_reasons":    reasons_json,
         "was_on_watchlist":         True,
@@ -424,7 +435,7 @@ def check_runner_breakout(runner_entry: dict,
         "catalyst_notes":           "promoted from runners list",
         "sp500_above_50d_ma":       sp500_context.get("sp500_above_50d_ma"),
         "sp500_above_200d_ma":      sp500_context.get("sp500_above_200d_ma"),
-        "vix_level":                None,
+        "vix_level":                sp500_context.get("vix_level"),
         "sector_trend":             None,
         "qualification_reasons":    reasons_json,
         "was_on_watchlist":         False,
@@ -490,7 +501,22 @@ def main():
     # Pre-fetch SPY context once (shared for all stocks) — CACHE AVOIDS 163+ REDUNDANT FETCHES
     sp500_ctx = get_sp500_context()
 
+    # Stage 8: Market Conditions Filter (R43, R45 — see check_market_conditions docstring
+    # for what is/isn't covered). Detected breakouts are still logged below for visibility
+    # even when blocked, so an unfavorable market doesn't hide what was passed on.
+    market_check = check_market_conditions(sp500_ctx)
+    market_filter_blocks = cfg.ENABLE_MARKET_FILTER and not market_check["ok"]
+    vix_str = f"{sp500_ctx['vix_level']:.1f}" if sp500_ctx.get("vix_level") is not None else "—"
+    print(
+        f"  Market conditions: SPY>50MA={sp500_ctx.get('sp500_above_50d_ma')}  "
+        f"SPY>200MA={sp500_ctx.get('sp500_above_200d_ma')}  VIX={vix_str}"
+    )
+    if market_filter_blocks:
+        print(f"  [MARKET FILTER] Unfavorable — new breakouts will be logged but not alerted: {'; '.join(market_check['reasons'])}")
+    print()
+
     new_breakouts   = []
+    suppressed      = []
     already_alerted = []
     no_trigger      = []
 
@@ -509,12 +535,15 @@ def main():
                 is_adr = result["_source"].endswith("-adr")
                 tag    = "📈 BREAKOUT [WL-ADR]" if is_adr else "✅ BREAKOUT [WL]   "
                 extra  = f" | {result['_adr_mult']:.1f}x ADR" if is_adr else ""
+                if market_filter_blocks:
+                    tag = "🚫 SUPPRESSED [WL] "
+                    suppressed.append(ticker)
                 print(
                     f"  {tag}: {ticker:<6} "
                     f"${result['breakout_price']:.2f} | Vol {result['volume_ratio']:.1f}x | "
                     f"+{result['_pct_above_pivot']:.1f}%{extra} | {result['pattern_type']}/{result['pattern_grade']}"
                 )
-                if not args.dry_run:
+                if not args.dry_run and not market_filter_blocks:
                     row_id = insert_breakout_entry({k: v for k, v in result.items() if not k.startswith("_")})
                     if row_id:
                         send_notification(ticker, {"breakout_price": result["breakout_price"],
@@ -540,12 +569,15 @@ def main():
                 is_adr = result.get("_source", "").endswith("-adr")
                 tag    = "📈 BREAKOUT [RN-ADR]" if is_adr else "🏃 BREAKOUT [RN]   "
                 extra  = f" | {result['_adr_mult']:.1f}x ADR" if is_adr else " (runner)"
+                if market_filter_blocks:
+                    tag = "🚫 SUPPRESSED [RN] "
+                    suppressed.append(ticker)
                 print(
                     f"  {tag}: {ticker:<6} "
                     f"${result['breakout_price']:.2f} | Vol {result['volume_ratio']:.1f}x | "
                     f"+{result['_pct_above_pivot']:.1f}% | {result['pattern_type']}/{result['pattern_grade']}{extra}"
                 )
-                if not args.dry_run:
+                if not args.dry_run and not market_filter_blocks:
                     row_id = insert_breakout_entry({k: v for k, v in result.items() if not k.startswith("_")})
                     if row_id:
                         send_notification(ticker, {"breakout_price": result["breakout_price"],
@@ -562,6 +594,8 @@ def main():
     print(f"\n  {'-'*55}")
     print(f"  Stocks checked       : {total_checked} ({len(watchlist)} watchlist + {len(runners)} runners)")
     print(f"  New breakouts        : {len(new_breakouts)}")
+    if suppressed:
+        print(f"  Suppressed (market)  : {len(suppressed)}  [{', '.join(suppressed)}]")
     print(f"  Already alerted today: {len(already_alerted)}")
     print(f"  No trigger yet       : {len(no_trigger)}")
     if already_alerted:
