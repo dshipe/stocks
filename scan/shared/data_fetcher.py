@@ -29,6 +29,45 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# ─── NYSE Holiday Calendar (added 2026-07-08) ─────────────────────────────────
+# Full-day NYSE holidays. Does NOT model early-close days (e.g. day after
+# Thanksgiving, Christmas Eve) — is_market_open() would incorrectly say "open"
+# past 1pm on those days. Built from pandas' holiday primitives, no extra
+# dependency (pandas_market_calendars) required.
+from pandas.tseries.holiday import (
+    AbstractHolidayCalendar, Holiday, nearest_workday,
+    USMartinLutherKingJr, USPresidentsDay, USMemorialDay,
+    USLaborDay, USThanksgivingDay,
+)
+from pandas.tseries.offsets import Easter, Day
+
+
+class _NYSEHolidayCalendar(AbstractHolidayCalendar):
+    rules = [
+        Holiday("New Year's Day", month=1, day=1, observance=nearest_workday),
+        USMartinLutherKingJr,
+        USPresidentsDay,
+        Holiday("Good Friday", month=1, day=1, offset=[Easter(), Day(-2)]),
+        USMemorialDay,
+        Holiday("Juneteenth", month=6, day=19, start_date="2022-06-19", observance=nearest_workday),
+        Holiday("Independence Day", month=7, day=4, observance=nearest_workday),
+        USLaborDay,
+        USThanksgivingDay,
+        Holiday("Christmas", month=12, day=25, observance=nearest_workday),
+    ]
+
+
+_nyse_calendar = _NYSEHolidayCalendar()
+_holiday_cache: dict[int, set] = {}  # year -> set of holiday dates, computed once per year
+
+
+def is_market_holiday(d: date) -> bool:
+    """Return True if `d` is a full-day NYSE holiday."""
+    if d.year not in _holiday_cache:
+        holidays = _nyse_calendar.holidays(start=f"{d.year}-01-01", end=f"{d.year}-12-31")
+        _holiday_cache[d.year] = {ts.date() for ts in holidays}
+    return d in _holiday_cache[d.year]
+
 
 # ─── Ticker Universe ───────────────────────────────────────────────────────────
 
@@ -379,8 +418,10 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
 def is_market_open() -> bool:
     """
     Return True if the US stock market is currently open.
-    Market hours: Monday–Friday, 9:30 AM – 4:00 PM Eastern Time.
-    Does not account for market holidays (add pandas_market_calendars for that).
+    Market hours: Monday–Friday, 9:30 AM – 4:00 PM Eastern Time, excluding
+    full-day NYSE holidays (see is_market_holiday). Does NOT account for
+    early-close days (e.g. day after Thanksgiving) — those still report open
+    until 4pm.
     """
     try:
         if HAS_PYTZ:
@@ -393,6 +434,9 @@ def is_market_open() -> bool:
 
         # Must be a weekday (Mon=0 … Fri=4)
         if now_est.weekday() >= 5:
+            return False
+
+        if is_market_holiday(now_est.date()):
             return False
 
         open_time  = now_est.replace(hour=9,  minute=30, second=0, microsecond=0)

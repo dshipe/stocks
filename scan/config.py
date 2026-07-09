@@ -157,6 +157,16 @@ INTRADAY_VOL_BASELINE_LOOKBACK_DAYS = int(os.getenv("INTRADAY_VOL_BASELINE_LOOKB
 ENABLE_MARKET_FILTER = os.getenv("ENABLE_MARKET_FILTER", "true").lower() == "true"
 MAX_VIX_LEVEL        = float(os.getenv("MAX_VIX_LEVEL", "30.0"))  # R45 — VIX < 30 preferred
 
+# ─── Stage 6: Position Sizing / Concentration Limits (added 2026-07-08) ──────
+# R33/R34 existed in Rules.MD but nothing enforced them — the system fired
+# every qualifying alert with no concept of account size or how many alerts
+# a trader could realistically act on in one day. Used by select_trades.py to
+# rank a day's alerts and pick which to act on within a capital budget.
+ACCOUNT_SIZE            = float(os.getenv("ACCOUNT_SIZE", "500000"))  # total account equity
+MAX_POSITION_PCT        = float(os.getenv("MAX_POSITION_PCT", "20.0"))  # R33 — max 20% of account per stock
+MAX_PCT_OF_ADV          = float(os.getenv("MAX_PCT_OF_ADV",   "1.0"))   # R34 — don't buy > 1% of avg daily volume
+MAX_CONCURRENT_POSITIONS = int(os.getenv("MAX_CONCURRENT_POSITIONS", "10"))  # cap regardless of capital left
+
 # ─── Notifications (optional) ─────────────────────────────────────────────────
 TWILIO_SID      = os.getenv("TWILIO_SID",   "")
 TWILIO_TOKEN    = os.getenv("TWILIO_TOKEN", "")

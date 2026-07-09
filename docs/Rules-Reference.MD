@@ -3,7 +3,7 @@
 > All rules in order, R1 through R46, with thresholds used in the scanner.
 > Full explanations: `Rules.MD` | Implementation: `scan/shared/criteria.py` | Config: `scan/config.py`
 >
-> **🔧 Modified rules:** R6 (prior move % and lookback window), R19 (volume contraction ratio), R_RUN1/R_RUN2 (runner gates tightened 2026-05-06) — see [Criteria Change Log](#criteria-change-log) below.
+> **🔧 Modified rules:** R6 (prior move % and lookback window), R19 (volume contraction ratio), R_RUN1/R_RUN2 (runner gates tightened 2026-05-06), R43/R45 (market filter implemented 2026-07-08), R33/R34/R36/R37/R38 (position sizing + profit-target alerts added 2026-07-08) — see [Criteria Change Log](#criteria-change-log) below.
 
 ---
 
@@ -33,7 +33,7 @@
 | **R21** | Volume | Distribution days | No high-vol down days (last 5) | No high-vol down days (last 5) | | — |
 | **R22** | Volume | Volume profile | Declining as base narrows | Declining as base narrows | | — |
 | **R23** | Breakout | Price trigger | Above consolidation high (pivot) | Above consolidation high (pivot) | | ✅ |
-| **R24** | Breakout | Breakout volume | ≥ 150% of 20-day avg | ≥ 300% of avg 30-min candle volume (intensity) | 🔧 2026-05-07 | ✅ |
+| **R24** | Breakout | Breakout volume | ≥ 150% of 20-day avg | ≥ 300% of avg 30-min candle volume (intensity, historical per-time-slot baseline — fixed 2026-07-08, was self-referential) | 🔧 2026-05-07 / 2026-07-08 | ✅ |
 | **R25** | Breakout | Candle strength | Closes within 5% of candle high | Closes within 5% of candle high | | ✅ |
 | **ADR1** | ADR Breakout | Intraday move | — | ≥ 0.5× ADR% from prev close (parallel path) | 🔧 2026-05-11 | ✅ |
 | **ADR2** | ADR Breakout | Volume | — | Last 30-min candle ≥ 2× avg 30-min vol (same approach as R24) | 🔧 2026-05-11 | ✅ |
@@ -45,19 +45,19 @@
 | **R30** | Risk | Stop distance | ≤ 1× ATR-14 | ≤ 1× ATR-14 | | — |
 | **R31** | Risk | Max risk per trade | 0.5% of account | 0.5% of account | | — |
 | **R32** | Risk | Position size | Dollar Risk ÷ (Entry − Stop) | Dollar Risk ÷ (Entry − Stop) | | — |
-| **R33** | Risk | Max position | 20% of account per stock | 20% of account per stock | | — |
-| **R34** | Risk | Volume impact | ≤ 1% of stock's ADV | ≤ 1% of stock's ADV | | — |
+| **R33** | Risk | Max position | 20% of account per stock | 20% of account per stock (`select_trades.py` — advisory sizing report, not a live scanner gate) | 🔧 2026-07-08 | ✅ |
+| **R34** | Risk | Volume impact | ≤ 1% of stock's ADV | ≤ 1% of stock's ADV (`select_trades.py` — advisory sizing report) | 🔧 2026-07-08 | ✅ |
 | **R35** | Risk | Min R/R ratio | ≥ 2:1 | ≥ 2:1 | | ✅ |
-| **R36** | Exit | First partial sale | Sell 1/3–1/2 at 2R | Sell 1/3–1/2 at 2R | | — |
-| **R37** | Exit | Stop move | Move to breakeven after 2R | Move to breakeven after 2R | | — |
-| **R38** | Exit | Second partial sale | Sell 1/4 at 3R | Sell 1/4 at 3R | | — |
+| **R36** | Exit | First partial sale | Sell 1/3–1/2 at 2R | Sell 1/3–1/2 at 2R (alert-only via `check_profit_targets.py` — no auto-execution) | 🔧 2026-07-08 | ✅ |
+| **R37** | Exit | Stop move | Move to breakeven after 2R | Move to breakeven after 2R (alert-only — no live stop order placed) | 🔧 2026-07-08 | ✅ |
+| **R38** | Exit | Second partial sale | Sell 1/4 at 3R | Sell 1/4 at 3R (alert-only via `check_profit_targets.py`) | 🔧 2026-07-08 | ✅ |
 | **R39** | Exit | Trail stop | 10-day MA close | 10-day MA close | | — |
 | **R40** | Exit | Alt trail | 20-day MA (extended trends) | 20-day MA (extended trends) | | — |
 | **R41** | Exit | Failed breakout | Exit on close below pivot | Exit on close below pivot | | ✅ |
 | **R42** | Exit | Earnings hold | Exit unless ≥ 30% cushion | Exit unless ≥ 30% cushion | | — |
-| **R43** | Market | S&P trend | Above 50d and 200d MA | Above 50d and 200d MA | | ✅ |
+| **R43** | Market | S&P trend | Above 50d and 200d MA | Above 50d and 200d MA — now actually gates alerts (was metadata-only and silently broken — `ma200` was never computed, every call threw and fell back to `{}`) | 🔧 2026-07-08 | ✅ |
 | **R44** | Market | Distribution | No distribution phase | No distribution phase | | — |
-| **R45** | Market | VIX | VIX < 30 | VIX < 30 | | — |
+| **R45** | Market | VIX | VIX < 30 | VIX < 30 (now fetched via `^VIX` and gates alerts; previously hardcoded `None`) | 🔧 2026-07-08 | ✅ |
 | **R46** | Market | Sector | Sector in uptrend | Sector in uptrend | | — |
 | **R_RUN1** | Runner | Near recent high | — | Within **10%** of 20-day high (`MAX_RUNNER_FROM_20D_HIGH`) | 🔧 2026-05-06 | ✅ |
 | **R_RUN2** | Runner | Prior move required | — | `find_prior_explosive_move()` must return a result (`RUNNER_REQUIRE_PRIOR_MOVE`) | 🔧 2026-05-06 | ✅ |
@@ -73,7 +73,10 @@
 **✅ Implemented** — rule is checked in `scan/shared/criteria.py`
 **—** — not yet automated (manual check or future enhancement)
 
-Of the 46 rules, **19 are automated** in the current scanner (R6a, R6b, R6c added 2026-04-29).
+Of the 46 rules, **25 are automated** in the current scanner (R6a, R6b, R6c added 2026-04-29;
+R33, R34, R36, R37, R38, R45 added 2026-07-08 — R33/R34/R36-R38 as advisory/alert-only tools,
+not live scanner gates; R43 fixed from silently-broken metadata to an actual gate).
+R44 and R46 remain unautomated — no distribution-day detector or sector data source exists yet.
 
 ---
 
@@ -108,6 +111,13 @@ Modify in `scan/config.py` or override via `scan/.env`:
 | `RUNNER_REQUIRE_PRIOR_MOVE` | — (false) | **true** | R_RUN2 | 🔧 2026-05-06 |
 | `MIN_RUNNER_PRICE` | — ($5 Stage 1 floor) | **$10** | R_RUN3 | 🔧 2026-05-16 |
 | `MIN_RUNNER_AVG_VOLUME` | — (300k Stage 1 floor) | **500k** | R_RUN4 | 🔧 2026-05-16 |
+| `INTRADAY_VOL_BASELINE_LOOKBACK_DAYS` | — (new) | **20** | R24 / ADR2 | 🔧 2026-07-08 |
+| `ENABLE_MARKET_FILTER` | — (new) | **true** | R43 / R45 | 🔧 2026-07-08 |
+| `MAX_VIX_LEVEL` | — (new) | **30.0** | R45 | 🔧 2026-07-08 |
+| `ACCOUNT_SIZE` | — (new) | **$500,000** | R33 / R34 | 🔧 2026-07-08 |
+| `MAX_POSITION_PCT` | — (new) | **20%** | R33 | 🔧 2026-07-08 |
+| `MAX_PCT_OF_ADV` | — (new) | **1.0%** | R34 | 🔧 2026-07-08 |
+| `MAX_CONCURRENT_POSITIONS` | — (new) | **10** | Position selection | 🔧 2026-07-08 |
 
 ---
 
@@ -131,10 +141,15 @@ ADR1–3   Breakout (ADR path)  → move ≥ 0.5× ADR% from prev close + 30-min
          (both paths run in parallel; base-pivot takes precedence if both fire)
     ↓
 R29–R35  Position Sizing      → stop below base low, 0.5% account risk, ≥2:1 R/R
+                                 (R33/R34 advisory sizing via select_trades.py, 🔧 2026-07-08)
     ↓
-R36–R42  Exit Management      → scale out at 2R/3R, trail 10d MA, exit failed breakouts
+R36–R42  Exit Management      → scale out at 2R/3R (alert-only via check_profit_targets.py,
+                                 🔧 2026-07-08), trail 10d MA (live via schwab_stop_loss.py),
+                                 exit failed breakouts
     ↓
-R43–R46  Market Filter        → S&P above MAs, low VIX, sector uptrend
+R43–R46  Market Filter        → S&P above MAs + low VIX now GATE new alerts (🔧 2026-07-08,
+                                 was metadata-only/broken); distribution phase + sector
+                                 uptrend (R44/R46) still not implemented
 ```
 
 ---
@@ -173,3 +188,15 @@ R43–R46  Market Filter        → S&P above MAs, low VIX, sector uptrend
 | 2026-05-16 | `MIN_RUNNER_AVG_VOLUME` | -- (300k Stage 1 floor) | **500k** | Low-float runners are illiquid and hard to trade at meaningful size |
 | 2026-05-16 | `MIN_BREAKOUT_GRADE` | None (all grades alerted) | **B** -- C excluded from breakout alerts | Backtest: C-grade has lower BO rate (50%) and high variance; not worth intraday monitoring |
 | 2026-05-16 | `MIN_HTF_BREAKOUT_GRADE` | None (all HTF grades alerted) | **A** -- HTF/B excluded from breakout alerts | Backtest: HTF/B averages -0.40% at 5d with 36% BO rate; HTF/A+ is best combo in dataset (+12.4% avg 20d) |
+| 2026-07-08 | `fetch_intraday()` avg_30min_volume (R24/ADR2) | Mean of today's own 30-min bars (self-referential) | **Historical per-time-slot baseline** -- avg volume per time-of-day slot over trailing 20 trading days | Self-reference made the >=3x/2x ratio mathematically near-impossible early in the day; root cause of zero rows in `breakout_entries` from table inception (2026-04-30) through 2026-07-08 |
+| 2026-07-08 | `compute_indicators()` | ma10, ma20, ma50 only | **+ ma200** | `get_sp500_context()` referenced `last["ma200"]`, threw KeyError on every call, silently fell back to `{}` -- R43 metadata was NULL on every breakout entry ever recorded |
+| 2026-07-08 | SPY context fetch window | 250 calendar days | **400 calendar days** | 250 days was not reliably enough trading days for a valid 200-day rolling MA |
+| 2026-07-08 | R43/R45 (Stage 8 market filter) | Recorded as metadata only, never gated a trade | **Actual gate** in `breakout_scanner.py` -- unfavorable conditions suppress new alerts (still logged, tagged SUPPRESSED) | Backtest showed choppy-market periods (Q1 2026, avg 20d only +0.22%) are exactly what this gate should filter; previously had zero effect |
+| 2026-07-08 | `vix_level` | Hardcoded `None` | **Fetched via `^VIX`** | Needed for R45 to actually function |
+| 2026-07-08 | `grade_setup()` pattern bonus | `+1` for `pattern_type in ("VCP", "HTF")` | **`+1` for VCP only** | HTF getting the same bonus as VCP undermined `MIN_HTF_BREAKOUT_GRADE=A`, letting weak HTF setups cross into grade A; live trade simulation showed HTF as the worst-performing pattern by avg P&L despite the bonus |
+| 2026-07-08 | R36-R38 (profit-taking) | Not implemented anywhere | **Alert-only** via new `check_profit_targets.py` -- Telegram alert at 2R/3R, no auto-execution | R29 (initial stop) and R39 (trailing stop) already had live execution via `schwab_stop_loss.py`; profit-taking had none. Live order placement was explicitly deferred (user chose alert-only over full automation) |
+| 2026-07-08 | R33/R34 (position sizing / concentration) | Not implemented -- every qualifying alert fired regardless of account size | **`select_trades.py`** -- advisory report that ranks a day's alerts and sizes each to `min(20% of account, 1% of ADV)` within `ACCOUNT_SIZE`/`MAX_CONCURRENT_POSITIONS` | System had no concept of account size; ~10-50 alerts/day is not tradable by one account without a selection layer |
+| 2026-07-08 | `watchlist_entries(scan_date, ticker)` index | Non-unique (`WHERE NOT EXISTS` app-level guard only) | **UNIQUE index** (DB-level backstop) | Verified zero existing duplicates before upgrading; closes a known tech-debt gap (app-level guard was the only protection) |
+| 2026-07-08 | `is_market_open()` | Weekday check only, no holiday awareness | **+ NYSE holiday calendar** (`is_market_holiday()`, no new dependency) -- does not yet handle early-close days | Known tech debt; verified against 8 known 2026 holidays including Good Friday (Easter-based) and the July 4th Saturday->Friday-observed shift |
+| 2026-07-08 | Performance tracking entry price | Stored once at scan/breakout time, never adjusted for later stock splits | **Re-derived from the same split-adjusted fetch used for exit prices** (`rebase_for_splits()` in `performance_tracker.py`) | yfinance retroactively adjusts an entire history for splits on every fetch; comparing an old unadjusted stored price against newly-adjusted closes produced fake cliffs (KLAC's 2026-06-12 10-for-1 split showed as a fake -90% "loss") |
+| 2026-07-08 | `max_gain_pct` (watchlist/runner/breakout performance) | Best-case only; no worst-case equivalent | **+ `max_drawdown_pct`/`max_drawdown_date`** (worst CLOSE within the 20-day window) | No way to simulate realistic stop-outs without a worst-case metric; used by `trade_simulator.py` |

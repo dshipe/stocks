@@ -114,11 +114,35 @@ def pct_change(entry_price: float, current_price: float) -> float | None:
     return None
 
 
+def max_gain_and_drawdown(window_df: pd.DataFrame, entry_price: float) -> tuple:
+    """
+    Best-case and worst-case outcome within a window, both measured on CLOSE
+    (not intraday High/Low) for consistency with each other — this is still
+    not true intraday drawdown, just the worst daily close.
+
+    Returns (max_gain_pct, max_gain_date, max_drawdown_pct, max_drawdown_date).
+    """
+    if window_df.empty:
+        return None, None, None, None
+
+    gain_idx  = window_df["Close"].idxmax()
+    gain_pct  = pct_change(entry_price, float(window_df["Close"].max()))
+    dd_idx    = window_df["Close"].idxmin()
+    dd_pct    = pct_change(entry_price, float(window_df["Close"].min()))
+
+    return gain_pct, gain_idx.date(), dd_pct, dd_idx.date()
+
+
 # ─── Watchlist Performance ────────────────────────────────────────────────────
 
-def update_watchlist_entries(dry_run: bool = False) -> int:
-    """Fill in performance data for all pending watchlist entries. Returns count updated."""
-    pending = get_pending_watchlist_performance()
+def update_watchlist_entries(dry_run: bool = False, force_ticker: str | None = None) -> int:
+    """
+    Fill in performance data for all pending watchlist entries. Returns count updated.
+    force_ticker reprocesses every entry for that ticker regardless of whether
+    performance data already looks complete — use to repair rows computed
+    before a bug fix (e.g. the 2026-07-08 split-rebase fix).
+    """
+    pending = get_pending_watchlist_performance(force_ticker=force_ticker)
     logger.info(f"Found {len(pending)} watchlist entries needing performance data")
     updated = 0
 
@@ -169,19 +193,14 @@ def update_watchlist_entries(dry_run: bool = False) -> int:
             if not window_df.empty and window_df["High"].max() > pivot_price:
                 did_break_out = True
 
-        # max_gain: highest close within 20 trading days
-        max_gain_pct  = None
-        max_gain_date = None
+        # max_gain / max_drawdown: best/worst close within 20 trading days
         window_20_end = trading_day_offset(scan_date, 20)
         window_20_df  = df[
             (df.index.date >= scan_date) &
             (df.index.date <= window_20_end)
         ]
-        if not window_20_df.empty:
-            best_idx   = window_20_df["Close"].idxmax()
-            best_price = float(window_20_df["Close"].max())
-            max_gain_pct  = pct_change(entry_price, best_price)
-            max_gain_date = best_idx.date()
+        max_gain_pct, max_gain_date, max_drawdown_pct, max_drawdown_date = \
+            max_gain_and_drawdown(window_20_df, entry_price)
 
         perf = {
             "ticker":          ticker,
@@ -196,6 +215,8 @@ def update_watchlist_entries(dry_run: bool = False) -> int:
             "did_break_out":   did_break_out,
             "max_gain_pct":    max_gain_pct,
             "max_gain_date":   max_gain_date,
+            "max_drawdown_pct":  max_drawdown_pct,
+            "max_drawdown_date": max_drawdown_date,
         }
 
         if not dry_run:
@@ -213,12 +234,12 @@ def update_watchlist_entries(dry_run: bool = False) -> int:
 
 # ─── Runner Performance ─────────────────────────────────────────────────────────────────────────
 
-def update_runner_entries(dry_run: bool = False) -> int:
+def update_runner_entries(dry_run: bool = False, force_ticker: str | None = None) -> int:
     """Fill in performance data for all pending runner entries. Returns count updated."""
     import pyodbc
     import config as cfg
 
-    pending = get_pending_runner_performance()
+    pending = get_pending_runner_performance(force_ticker=force_ticker)
     logger.info(f"Found {len(pending)} runner entries needing performance data")
     updated = 0
 
@@ -273,14 +294,11 @@ def update_runner_entries(dry_run: bool = False) -> int:
         except Exception:
             pass
 
-        # max_gain within 20 trading days
-        max_gain_pct = None; max_gain_date = None
+        # max_gain / max_drawdown within 20 trading days
         w20_end = trading_day_offset(scan_date, 20)
         w20_df  = df[(df.index.date >= scan_date) & (df.index.date <= w20_end)]
-        if not w20_df.empty:
-            best_idx      = w20_df["Close"].idxmax()
-            max_gain_pct  = pct_change(entry_price, float(w20_df["Close"].max()))
-            max_gain_date = best_idx.date()
+        max_gain_pct, max_gain_date, max_drawdown_pct, max_drawdown_date = \
+            max_gain_and_drawdown(w20_df, entry_price)
 
         perf = {
             "ticker": ticker, "scan_date": scan_date,
@@ -296,6 +314,8 @@ def update_runner_entries(dry_run: bool = False) -> int:
             "did_break_out":  did_break_out,
             "max_gain_pct":   max_gain_pct,
             "max_gain_date":  max_gain_date,
+            "max_drawdown_pct":  max_drawdown_pct,
+            "max_drawdown_date": max_drawdown_date,
         }
 
         if not dry_run:
@@ -309,9 +329,9 @@ def update_runner_entries(dry_run: bool = False) -> int:
 
 # ─── Breakout Performance ─────────────────────────────────────────────────────
 
-def update_breakout_entries(dry_run: bool = False) -> int:
+def update_breakout_entries(dry_run: bool = False, force_ticker: str | None = None) -> int:
     """Fill in performance data for all pending breakout entries. Returns count updated."""
-    pending = get_pending_breakout_performance()
+    pending = get_pending_breakout_performance(force_ticker=force_ticker)
     logger.info(f"Found {len(pending)} breakout entries needing performance data")
     updated = 0
 
@@ -379,19 +399,14 @@ def update_breakout_entries(dry_run: bool = False) -> int:
                 best_high = float(window_20_df["High"].max())
                 max_r_multiple = round((best_high - entry_price) / risk, 2)
 
-        # max_gain_pct
-        max_gain_pct  = None
-        max_gain_date = None
+        # max_gain / max_drawdown within 20 trading days
         window_20_end = trading_day_offset(breakout_date, 20)
         window_20_df  = df[
             (df.index.date >= breakout_date) &
             (df.index.date <= window_20_end)
         ]
-        if not window_20_df.empty:
-            best_idx   = window_20_df["Close"].idxmax()
-            best_price = float(window_20_df["Close"].max())
-            max_gain_pct  = pct_change(entry_price, best_price)
-            max_gain_date = best_idx.date()
+        max_gain_pct, max_gain_date, max_drawdown_pct, max_drawdown_date = \
+            max_gain_and_drawdown(window_20_df, entry_price)
 
         # was_failed_breakout: price closed back below pivot within 3 days
         was_failed_breakout = False
@@ -421,6 +436,8 @@ def update_breakout_entries(dry_run: bool = False) -> int:
             "max_r_multiple":       max_r_multiple,
             "max_gain_pct":         max_gain_pct,
             "max_gain_date":        max_gain_date,
+            "max_drawdown_pct":     max_drawdown_pct,
+            "max_drawdown_date":    max_drawdown_date,
             "was_failed_breakout":  was_failed_breakout,
         }
 
@@ -440,10 +457,16 @@ def update_breakout_entries(dry_run: bool = False) -> int:
 def main():
     parser = argparse.ArgumentParser(description="Performance tracker for watchlist and breakout entries")
     parser.add_argument("--dry-run", action="store_true", help="Print without writing to DB")
+    parser.add_argument("--ticker", type=str, default=None,
+                         help="Force-reprocess ALL entries for this ticker, even if performance "
+                              "data already looks complete (e.g. to repair rows affected by a "
+                              "since-fixed bug like the split-rebase fix)")
     args = parser.parse_args()
 
     print(f"\n{'='*55}")
     print(f"  PERFORMANCE TRACKER — {date.today()}")
+    if args.ticker:
+        print(f"  [FORCE REPROCESS] {args.ticker}")
     print(f"{'='*55}\n")
 
     if not args.dry_run:
@@ -451,9 +474,9 @@ def main():
             logger.error("Cannot connect to SQL Server.")
             sys.exit(1)
 
-    w_updated = update_watchlist_entries(dry_run=args.dry_run)
-    b_updated = update_breakout_entries(dry_run=args.dry_run)
-    r_updated = update_runner_entries(dry_run=args.dry_run)
+    w_updated = update_watchlist_entries(dry_run=args.dry_run, force_ticker=args.ticker)
+    b_updated = update_breakout_entries(dry_run=args.dry_run, force_ticker=args.ticker)
+    r_updated = update_runner_entries(dry_run=args.dry_run, force_ticker=args.ticker)
 
     print(f"\n  Watchlist entries updated : {w_updated}")
     print(f"  Breakout entries updated  : {b_updated}")

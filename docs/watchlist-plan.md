@@ -778,3 +778,38 @@ quality via grade, not a binary in/out decision.
   "had clean vol contraction" for informational purposes only
 
 ---
+
+### 18. Grade Pattern Bonus Fix: HTF Removed from VCP Bonus (2026-07-08)
+
+**Problem:** `grade_setup()`'s pattern bonus gave `+1` score to both `("VCP", "HTF")` —
+but HTF is the codebase's own documented weakest pattern. `MIN_HTF_BREAKOUT_GRADE=A` exists
+specifically because backtesting showed HTF/B averages -0.40% at 5d with a 36% breakout
+rate (see `docs/Rules-Reference.MD`). Giving HTF a free +1 made it *easier* for weak HTF
+setups to cross into grade A — directly undermining the floor meant to filter them out.
+
+A live trade simulation this session (2,402 confirmed breakouts, `did_break_out=1`,
+fixed $50k position sizing) confirmed this in practice: **A-grade win rate (53.1%) was
+barely different from C-grade (52.9%)**, and C had a *higher* average $ P&L per trade
+than A ($1,555 vs $916) — grade wasn't discriminating the way the backtest implied it
+should. HTF was also the worst-performing pattern by avg P&L in that same simulation,
+despite getting the same scoring bonus as VCP (the best-performing, highest-win-rate
+pattern). The source rubric (`qullamaggie/breakouts/Index.MD`, `vcp_setup.MD`) only ever
+describes this as a VCP-quality signal in the first place — HTF was never supposed to
+share it.
+
+**Resolution:** Restricted the pattern bonus to `pattern_type == "VCP"` only.
+
+**Verified:** at a synthetic boundary score (move=40%, depth=8%, contraction=0.6, MA
+aligned — score 6 without any pattern bonus), VCP still gets +1 and crosses into grade
+**A**; HTF now correctly stays at grade **B**, no longer bypassing
+`MIN_HTF_BREAKOUT_GRADE=A`.
+
+**Files changed:** `scan/shared/criteria.py` — `grade_setup()` pattern bonus condition.
+`backtest_scanner.py` and `breakout_scanner.py` both import the same function, so the fix
+applies everywhere without duplicate logic to patch.
+
+**Follow-up (not yet done):** re-run `backtest_scanner.py` against fresh data once enough
+volume accumulates under this fix, to confirm grade discrimination actually improved rather
+than assuming it from the boundary-case test above.
+
+---

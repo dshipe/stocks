@@ -226,6 +226,74 @@ Telegram filtering also happens at this point — only A/A+ setups are sent to T
 
 ---
 
+## Profit Target Alerts (`check_profit_targets.py`) — added 2026-07-08
+
+### What It Does
+
+Implements Rules.MD R36-R38 (sell 1/3-1/2 at 2R, move stop to breakeven, sell another 1/4
+at 3R) as **Telegram alerts only — it never places an order.** R29 (initial stop) and R39
+(10-day-MA trailing stop) are unaffected and still handled live by `schwab_stop_loss.py`
+above; this script only covers the profit-taking side, and only as a notification.
+
+This was a deliberate scope decision: implementing R36-R38 as live order placement would
+mean writing code that can sell real shares automatically, which is a materially different
+risk profile than adjusting a stop price. Alert-only was chosen over full automation.
+
+Flow:
+1. Fetches live Schwab equity positions (ticker + quantity only — read-only, same auth
+   pattern as `schwab_stop_loss.py`)
+2. For each position, looks up the most recent `breakout_entries` row for that ticker
+   (`get_latest_breakout_entry()` in `db_writer.py`) to get the entry price and stop price
+   this system's own breakout scanner recorded at detection time
+3. Computes the live R-multiple: `(current_price - breakout_price) / risk_per_share`,
+   using a real-time price when the market is open, else the latest daily close
+4. Sends one Telegram alert per R-level crossed (2R, then separately 3R), recommending what
+   Rules.MD says to do — you place the actual order
+
+A position with no matching `breakout_entries` row (predates this system, or wasn't sourced
+from an alert) is skipped with a note — there's no reliable way to know its original risk.
+
+### Dedup: `profit_target_alerts` table
+
+One row per `(breakout_id, r_level)`, written after each alert, so a position doesn't get
+re-alerted for the same R-level on every run:
+
+```sql
+CREATE TABLE profit_target_alerts (
+    id          INT IDENTITY(1,1) PRIMARY KEY,
+    breakout_id INT NOT NULL,
+    ticker      VARCHAR(10) NOT NULL,
+    r_level     DECIMAL(3,1) NOT NULL,   -- 2.0 (R36) or 3.0 (R38)
+    r_multiple  DECIMAL(6,2) NULL,
+    alerted_at  DATETIME DEFAULT GETDATE(),
+    FOREIGN KEY (breakout_id) REFERENCES breakout_entries(id)
+);
+```
+
+### Dependency on the breakout pipeline
+
+This script depends entirely on `breakout_entries` having rows with `stop_price`/
+`risk_per_share` — which was empty for 2+ months due to the `avg_30min_volume`
+self-referential bug (see `docs/breakout-scanner-plan.md`, issue #11). It will only start
+producing real alerts once new breakouts actually get detected and logged going forward.
+
+### Running Manually
+
+```bash
+cd scan/
+python3 schwab_scripts/check_profit_targets.py              # live — sends Telegram, marks DB
+python3 schwab_scripts/check_profit_targets.py --dry-run    # print only, no Telegram, no DB write
+```
+
+### Scheduling
+
+**Not currently in `cron_setup.sh`.** Cadence is a deliberate open choice — intraday (to
+catch a profit target as soon as it's hit, like `breakout_scanner.py`'s 30-minute cycle) vs.
+daily (simpler, alongside `schwab_stop_loss.py` at 8:15 AM, but could miss same-day 2R/3R
+moves until the next day). Add manually to `cron_setup.sh` once a cadence is decided.
+
+---
+
 ## Full Daily Schedule
 
 | Time (EDT) | UTC | Job |
@@ -234,9 +302,11 @@ Telegram filtering also happens at this point — only A/A+ setups are sent to T
 | 8:15 AM | 12:15 | `schwab_stop_loss.py` — set/raise GTC stops at 10d SMA |
 | 9:30 AM | 13:30 | Market opens |
 | Every :00/:30 | 13:30–21:00 | `breakout_scanner.py` |
+| — | — | `check_profit_targets.py` — **not yet scheduled**, see above |
 | 4:30 PM | 20:30 | `performance_tracker.py` |
 
 ---
 
 *Created: 2026-05-16 (consolidated from schwab-stop-loss-plan.md, schwab-stop-loss-rate-limit-plan.md, schwab-watchlist-sync-plan.md)*
+*Updated: 2026-07-08 — added `check_profit_targets.py` (R36-R38 profit-target alerts, alert-only)*
 *See also: `docs/watchlist-plan.md`, `docs/Rules-Reference.MD`, `scan/config.py`, `scan/cron_setup.sh`*

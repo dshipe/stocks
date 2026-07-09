@@ -145,6 +145,53 @@ Live watchlist breakout rates (78–89%) are significantly higher than the backt
 
 ---
 
+## Live Performance — 2026-07-08 Snapshot
+
+*Run: 2026-07-08 | `check_performance.py`, `trade_simulator.py`, manual DB investigation*
+
+**`breakout_entries` had zero rows since table inception (2026-04-30).** Root cause: a
+self-referential bug in `fetch_intraday()`'s `avg_30min_volume` calculation made R24/ADR2's
+volume-intensity checks mathematically near-impossible to satisfy (see
+`docs/breakout-scanner-plan.md`, issue #11). `watchlist_entries` (3,844) and `runner_entries`
+(1,829) had been populating normally the entire time — only the breakout confirmation step
+was silently broken. Fixed same day.
+
+**Grade wasn't discriminating as well as the backtest implied.** A $50k-position, rules-based
+trade simulation over 2,402 confirmed breakouts (`did_break_out=1` in `watchlist_performance`,
+used as a retrospective proxy since `breakout_entries` was empty) showed:
+
+| Grade | N | Total P&L | Avg P&L | Win % |
+|---|---|---|---|---|
+| A+ | 3 | +$7,243 | +$2,414 | 100% |
+| A | 143 | +$131,007 | +$916 | 53.1% |
+| B | 653 | +$702,594 | +$1,076 | 53.1% |
+| C | 1,603 | +$2,492,671 | +$1,555 | 52.9% |
+
+A vs. C win rate was statistically indistinguishable, and C had a *higher* average $ P&L
+than A — contradicting the backtest's A+ = 79% win rate / +12.4% avg 20d expectation. Root
+cause found: `grade_setup()`'s pattern bonus rewarded HTF equally with VCP, letting weak HTF
+setups artificially cross the `MIN_HTF_BREAKOUT_GRADE=A` floor meant to exclude them (see
+`docs/watchlist-plan.md`, issue #18). Fixed same day — bonus restricted to VCP only.
+**This resolves the "Recalibrate A vs B grading rubric" action item below**, though full
+validation needs a fresh backtest run once enough live data accumulates under the fix.
+
+**Data-quality artifacts found in split-affected tickers.** KLAC, MULL, INTW, and PSIG all
+showed fabricated ~-90% "losses" in tracked performance. Root cause: `performance_tracker.py`
+compared a stored (pre-split) entry price against freshly-fetched (post-split-adjusted)
+exit prices — confirmed against KLAC's real 10-for-1 split on 2026-06-12. Fixed via
+`rebase_for_splits()`, and all four tickers' historical rows were repaired via a new
+`--ticker` force-reprocess flag on `performance_tracker.py` (normal runs only touch
+"pending"/incomplete rows, so already-fully-populated corrupted rows needed an explicit
+reprocess). KLAC verified: 5d return went from a fake -89.97% to a real ~0.0%.
+
+**Added `max_drawdown_pct`/`max_drawdown_date`** (worst CLOSE within the 20-day window,
+mirroring the existing `max_gain_pct`) to all three performance tables — closes the
+"no worst-case metric" gap that previously made realistic stop-loss simulation impossible.
+`trade_simulator.py` now uses it to detect stop-outs across the whole window, not just the
+four sampled 1d/5d/10d/20d checkpoints.
+
+---
+
 ## Action Items
 
 | Priority | Item | Status |
@@ -152,12 +199,19 @@ Live watchlist breakout rates (78–89%) are significantly higher than the backt
 | Done | Exclude C-grade from breakout alerts | `MIN_BREAKOUT_GRADE=B` |
 | Done | Exclude HTF/B from breakout alerts | `MIN_HTF_BREAKOUT_GRADE=A` |
 | Done | Add runner quality floor ($10 price, 500k vol) | `MIN_RUNNER_PRICE`, `MIN_RUNNER_AVG_VOLUME` |
-| Done | Fix watchlist entry deduplication | `WHERE NOT EXISTS` guard |
-| Pending | Recalibrate A vs B grading rubric | A and B performing identically |
-| Pending | Add market regime gate (S&P 50d MA) | Currently recorded, not enforced |
-| Pending | Investigate HTF pattern detection | HTF/A+ excellent, HTF/B systematically poor |
+| Done | Fix watchlist entry deduplication | `WHERE NOT EXISTS` guard + 2026-07-08: upgraded to a DB-level UNIQUE index |
+| Done (2026-07-08) | Recalibrate A vs B grading rubric | `grade_setup()` pattern bonus was rewarding HTF same as VCP — restricted to VCP only. Needs a fresh backtest to confirm improvement. |
+| Done (2026-07-08) | Add market regime gate (S&P 50d MA) | Was recorded but silently broken (`ma200` never computed) and never enforced — now fetches VIX too and actually gates new alerts (R43/R45) |
+| Pending | Investigate HTF pattern detection | HTF/A+ excellent, HTF/B systematically poor — grading fix (above) should help, but root pattern-detection quality is untouched |
+| Done (2026-07-08) | Fix zero rows in `breakout_entries` | `avg_30min_volume` self-referential bug in `fetch_intraday()` — see snapshot above |
+| Done (2026-07-08) | Fix split-adjustment data corruption (KLAC, MULL, INTW, PSIG) | `rebase_for_splits()` in `performance_tracker.py`; historical rows repaired |
+| Done (2026-07-08) | Add worst-case (drawdown) performance metric | `max_drawdown_pct`/`max_drawdown_date` added to all 3 performance tables |
+| Done (2026-07-08) | Implement R33/R34 position sizing | `select_trades.py` — advisory report, not a live scanner gate |
+| Done (2026-07-08) | Implement R36-R38 profit-taking | `check_profit_targets.py` — alert-only, no live order placement |
+| Pending | Re-run `backtest_scanner.py` after the grading fix | Confirm grade discrimination actually improved with real data, not just the boundary-case test used to verify the fix |
+| Pending | Decide `check_profit_targets.py` cadence and schedule it | Currently not in `cron_setup.sh` — intraday vs. daily is an open choice |
 
 ---
 
-*Next review: ~2026-05-29 (10d data), ~2026-06-12 (20d data)*
-*See also: `docs/how-to-trade.md`, `docs/Rules-Reference.MD`, `scan/backtest_scanner.py`*
+*Next review: ~2026-05-29 (10d data), ~2026-06-12 (20d data), ~2026-07-08 findings above*
+*See also: `docs/how-to-trade.md`, `docs/Rules-Reference.MD`, `scan/backtest_scanner.py`, `scan/trade_simulator.py`*

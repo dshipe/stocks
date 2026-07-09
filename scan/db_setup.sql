@@ -269,10 +269,53 @@ ELSE
     PRINT 'Table already exists: profit_target_alerts';
 GO
 
+-- ─── Migrations (idempotent ALTER TABLE ADD — for tables that already existed
+-- in production before a column was introduced) ──────────────────────────────
+
+-- max_drawdown_pct/date (added 2026-07-08): symmetric to max_gain_pct/date.
+-- Previously only the best-case (peak favorable) outcome was tracked within
+-- the 20-day window — there was no worst-case (trough) equivalent, which made
+-- realistic stop-loss simulation impossible (see docs/plans — trade
+-- simulation caveats). Computed the same way as max_gain_pct: lowest CLOSE
+-- (not intraday Low) within the 20-day window, for methodological consistency
+-- with the existing metric — still not true intraday drawdown.
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('watchlist_performance') AND name = 'max_drawdown_pct')
+    ALTER TABLE watchlist_performance ADD max_drawdown_pct DECIMAL(6,2) NULL;
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('watchlist_performance') AND name = 'max_drawdown_date')
+    ALTER TABLE watchlist_performance ADD max_drawdown_date DATE NULL;
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('runner_performance') AND name = 'max_drawdown_pct')
+    ALTER TABLE runner_performance ADD max_drawdown_pct DECIMAL(6,2) NULL;
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('runner_performance') AND name = 'max_drawdown_date')
+    ALTER TABLE runner_performance ADD max_drawdown_date DATE NULL;
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('breakout_performance') AND name = 'max_drawdown_pct')
+    ALTER TABLE breakout_performance ADD max_drawdown_pct DECIMAL(6,2) NULL;
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('breakout_performance') AND name = 'max_drawdown_date')
+    ALTER TABLE breakout_performance ADD max_drawdown_date DATE NULL;
+GO
+
+
 -- ─── Indexes ───────────────────────────────────────────────────────────────
 
+-- Upgraded to UNIQUE (2026-07-08) — no DB-level dedup constraint existed
+-- before; a double-run of watchlist_scanner.py could silently duplicate
+-- (scan_date, ticker) rows (previously only guarded in application code via
+-- WHERE NOT EXISTS). Verified zero existing duplicates before this change.
+IF EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = 'IX_watchlist_entries_scan_date_ticker' AND is_unique = 0
+)
+    DROP INDEX IX_watchlist_entries_scan_date_ticker ON watchlist_entries;
+GO
+
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_watchlist_entries_scan_date_ticker')
-    CREATE INDEX IX_watchlist_entries_scan_date_ticker
+    CREATE UNIQUE INDEX IX_watchlist_entries_scan_date_ticker
         ON watchlist_entries (scan_date, ticker);
 GO
 

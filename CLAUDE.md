@@ -24,6 +24,20 @@ python3 backtest_scanner.py --years 1 --universe sp500
 # Check live performance data
 python3 check_performance.py
 
+# Rules-based $ P&L backtest over tracked breakouts
+python3 trade_simulator.py
+python3 trade_simulator.py --position-size 25000 --grades A+,A,B
+
+# Rank today's alerts and pick trades within a capital budget (advisory, R33/R34)
+python3 select_trades.py
+python3 select_trades.py --date 2026-07-08 --account-size 250000
+
+# Repair performance rows for one ticker regardless of completeness (e.g. after a bug fix)
+python3 performance_tracker.py --ticker KLAC
+
+# Alert (not execute) on 2R/3R profit targets for open Schwab positions
+python3 schwab_scripts/check_profit_targets.py --dry-run
+
 # Install cron jobs
 chmod +x cron_setup.sh && ./cron_setup.sh
 ```
@@ -53,10 +67,13 @@ If `tickers_sp500()` returns HTTP 403, falls back to a GitHub-hosted S&P 500 CSV
 ~5 minutes instead of 45+
 
 **Database:** SQL Server on `ec2-35-172-202-150.compute-1.amazonaws.com`, DB `python`.
-Schema is in `scan/db_setup.sql` (idempotent — safe to re-run).
+Schema is in `scan/db_setup.sql` (idempotent — safe to re-run; schema changes to
+already-existing tables go in the "Migrations" section using
+`IF NOT EXISTS (SELECT ... FROM sys.columns ...) ALTER TABLE ... ADD ...`, added 2026-07-08).
 Credentials in `scan/.env` (never in source).
 Tables: `watchlist_entries`, `watchlist_performance`, `breakout_entries`,
-`breakout_performance`, `runner_entries`, `runner_performance`.
+`breakout_performance`, `runner_entries`, `runner_performance`, `profit_target_alerts`
+(added 2026-07-08 — dedup log for `check_profit_targets.py`, alert-only, no orders placed).
 
 ## Stage Pipeline (`shared/criteria.py`)
 
@@ -87,6 +104,9 @@ Key params:
 - `MIN_HTF_BREAKOUT_GRADE` — HTF-specific floor (default A — HTF/B excluded; backtest shows -0.40% avg 5d)
 - `MIN_RUNNER_PRICE` — runner price floor (default $10, tighter than Stage 1 $5)
 - `MIN_RUNNER_AVG_VOLUME` — runner volume floor (default 500k, tighter than Stage 1 300k)
+- `INTRADAY_VOL_BASELINE_LOOKBACK_DAYS` — R24/ADR2 historical volume baseline window (default 20 days, added 2026-07-08)
+- `ENABLE_MARKET_FILTER` / `MAX_VIX_LEVEL` — Stage 8 market gate (R43/R45; default on / VIX < 30, added 2026-07-08)
+- `ACCOUNT_SIZE` / `MAX_POSITION_PCT` / `MAX_PCT_OF_ADV` / `MAX_CONCURRENT_POSITIONS` — R33/R34 position sizing, used by `select_trades.py` (added 2026-07-08)
 
 ## Key Conventions
 
@@ -111,6 +131,20 @@ were still market leaders (CVNA was a real example of this).
 `find_prior_explosive_move()` still runs as Stage 2b for grading bonus — but failing it
 does not drop a stock. Do not revert this to a gate.
 
+## Why avg_30min_volume Uses a Historical Baseline, Not Today's Own Bars
+
+Before 2026-07-08, `fetch_intraday()` computed `avg_30min_volume` as the mean of **today's
+own** 30-min bars — self-referential, since the mean always included the very candle being
+tested against it. This made R24/ADR2 (`last_30min_vol / avg_30min_vol >= 3x` / `2x`)
+mathematically close to impossible early in the day, and still very hard even near the
+close. Root cause of `breakout_entries` having zero rows for 2+ months straight despite
+`watchlist_entries`/`runner_entries` populating normally the whole time.
+
+`fetch_intraday_volume_baseline()` now fetches 60 days of 30-min-interval history and
+averages volume per time-of-day slot over the trailing `INTRADAY_VOL_BASELINE_LOOKBACK_DAYS`
+(20) trading days — a genuine historical comparison. **Do not revert to a same-day
+average** — it reintroduces this exact bug.
+
 ## Plans & Rules Docs
 
 - `docs/Rules-Reference.MD` — complete rules table (R1–R46), thresholds, change log
@@ -134,9 +168,34 @@ Key 1-year backtest findings (S&P 500, May 2025 – Apr 2026):
 - **HTF/B**: -0.40% avg 5d, 36% BO rate — excluded from alerts by default
 - **Q1 2026 (choppy market)**: avg 20d only +0.22% — market regime matters
 
+> These findings predate the 2026-07-08 `grade_setup()` fix (HTF removed from the VCP
+> pattern bonus — see `docs/watchlist-plan.md` issue #18) and the R43/R45 market filter
+> going live. A live trade simulation on 2026-07-08 found A-grade barely outperforming
+> C-grade in practice, contradicting the A+ numbers above — see
+> `docs/performance-analysis.md`'s 2026-07-08 snapshot. Re-run `backtest_scanner.py` before
+> trusting these specific numbers going forward.
+
 ## Tech Debt
 
-- No market holiday calendar (`is_market_open()` uses weekday only)
-- No dedup constraint on `watchlist_entries(scan_date, ticker)` at the DB schema level (inserts are deduplicated in code via WHERE NOT EXISTS)
 - `tickers_nasdaq()` from yahoo_fin returns all Nasdaq-listed stocks (~5,000+); no pre-screen
   by market cap or price before the bulk download. Stage 1 drops most, but the download is wide.
+- R44 (distribution-day detection) and R46 (sector trend) are not automated — no rolling
+  distribution-day counter and no ticker→sector mapping / sector ETF history exist in this
+  codebase. R43/R45 were fixed and now gate alerts (2026-07-08); R44/R46 remain metadata-free.
+- `check_profit_targets.py` (R36-R38 profit-target alerts) is not in `cron_setup.sh` — cadence
+  (intraday vs. daily) hasn't been decided.
+- R29 (initial stop at base-low) is not enforced live — `schwab_stop_loss.py` sets/raises
+  stops at the 10-day SMA from day one, not at the base-low stop the breakout scanner
+  computes and stores in `breakout_entries.stop_price`.
+- `select_trades.py` and `trade_simulator.py` are read-only advisory/analysis tools, not
+  wired into the live scanner pipeline — they don't change what alerts fire.
+- `is_market_open()`'s holiday calendar (added 2026-07-08) doesn't model early-close days
+  (e.g. day after Thanksgiving, Christmas Eve) — those still report "open" until 4pm.
+- Split/reverse-split detection (`rebase_for_splits()`, added 2026-07-08) only fires when
+  `performance_tracker.py` processes a row — a ticker that splits and is never scanned again
+  (or whose row is already "complete" and thus outside the normal pending-rows query) needs
+  the `--ticker` force-reprocess flag run manually. No automatic detection of *which*
+  tickers have split since their entries were recorded.
+- Grade calibration (`grade_setup()`) was fixed once (2026-07-08, HTF removed from the VCP
+  pattern bonus) based on a small live sample (146 A/A+ trades). Needs re-validation against
+  a fresh `backtest_scanner.py` run once more data accumulates under the fix.

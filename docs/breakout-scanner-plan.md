@@ -681,9 +681,65 @@ This means the breakout scanner checks two sources on each 30-minute run:
 1. `watchlist_entries` (pre-qualified base setups from the morning scan)
 2. `runner_entries` (Stage 1+2 passes still in markup — same-day base→breakout only)
 
+### 11. avg_30min_volume Self-Referential Bug — Zero Breakouts for 2+ Months (2026-07-08)
+**Problem:** `fetch_intraday()` computed `avg_30min_volume` as the mean of **today's own**
+30-min bars (`df.resample("30T")...mean()`) — a baseline that always includes the very
+candle being tested against it. R24 (`>= 3x avg 30-min vol`) and ADR2 (`>= 2x`) both consume
+this value, and the self-reference makes the ratio mathematically close to 1.0 for most of
+the day (impossible to clear before ~10:30-11:00 AM; even at end-of-day the last 30 minutes
+would need more volume than the entire rest of the session combined, times 3). Root cause of
+`breakout_entries` having **zero rows** from table inception (2026-04-30) through 2026-07-08
+despite `watchlist_entries`/`runner_entries` populating normally the whole time.
+
+**Resolution:** Added `fetch_intraday_volume_baseline()` — fetches 60 days of 30-min-interval
+history (Yahoo's cap for that interval), excludes today's partial session, and averages
+volume per time-of-day slot (9:30, 10:00, ...) over the trailing `INTRADAY_VOL_BASELINE_LOOKBACK_DAYS`
+(default 20) trading days. `fetch_intraday()` now looks up the historical average for the
+*same slot* as the candle being tested, instead of averaging today's bars against themselves.
+
+**Verified:** AAPL's baseline now shows a realistic volume curve (~7.5M at 9:30 tapering to
+~2.7M by 11:30) instead of a self-referential value stuck near 1x.
+
+**Do not revert to a same-day average** — it reintroduces this exact bug.
+
+### 12. Market Conditions Filter Implemented — R43/R45 (2026-07-08)
+**Problem (two bugs):**
+1. `compute_indicators()` never computed `ma200` — `get_sp500_context()` referenced
+   `last["ma200"]`, threw a `KeyError` on every call, and silently fell back to `{}` (its
+   `except` block). `sp500_above_50d_ma`/`sp500_above_200d_ma` were NULL on every
+   breakout entry ever recorded.
+2. Even when working, R43/R45 (Stage 8 — market conditions) were metadata-only. Nothing
+   gated a trade on them. `vix_level`/`sector_trend` were hardcoded `None`, never fetched.
+
+**Resolution:**
+- Added `ma200` to `compute_indicators()`; bumped the SPY fetch from 250→400 calendar days
+  (250 wasn't reliably enough trading days for a valid 200-day rolling average).
+- `get_sp500_context()` now also fetches `^VIX` and returns a real `vix_level`.
+- Added `check_market_conditions()` in `criteria.py`, enforcing R43 (SPY above both 50d and
+  200d MA) and R45 (VIX below `MAX_VIX_LEVEL`, default 30). **R44** (distribution-day
+  detection) and **R46** (sector trend) remain unimplemented — no data source for either
+  exists in this codebase yet.
+- Wired into `breakout_scanner.py main()`: when conditions are unfavorable, new breakouts
+  are still detected and printed (tagged `🚫 SUPPRESSED`) for visibility, but not written to
+  the DB or alerted. Fails **open** (doesn't block) if SPY/VIX can't be fetched.
+- New config: `ENABLE_MARKET_FILTER` (default `true`), `MAX_VIX_LEVEL` (default `30.0`).
+
+**Verified:** confirmed `get_sp500_context()` now resolves correctly (`sp500_above_50d_ma=True,
+sp500_above_200d_ma=True, vix_level=16.13` at time of fix) instead of erroring to `{}`.
+
+### 13. Profit-Target Alerts Added — R36-R38, Alert-Only (2026-07-08)
+R36-R38 (sell partial position at 2R/3R, move stop to breakeven) existed only in Rules.MD —
+nothing computed or surfaced them for live positions. Added `check_profit_targets.py` (see
+`docs/schwab-integration.md` for full detail) — reads live Schwab positions, looks up each
+ticker's tracked entry/stop from `breakout_entries`, and sends a Telegram alert when the
+live R-multiple crosses 2R or 3R. **Alert-only — no orders are placed automatically**;
+initial stop placement (R29) and the 10-day-MA trailing stop (R39) are unaffected and still
+handled by `schwab_stop_loss.py`.
+
 ---
 
-*Last updated: 2026-05-07 (R24 redesign — 30-min volume intensity; batch fetching + SPY cache)*
+*Last updated: 2026-07-08 (avg_30min_volume self-referential fix; R43/R45 market filter
+implemented; R36-R38 profit-target alerts added)*
 *Based on: `qullamaggie/breakouts/Rules.MD`, `qullamaggie/breakouts/Summary.MD`, `qullamaggie/breakouts/vcp_setup.MD`*
 *Implemented: 2026-04-27 on Ubuntu 24.04 AWS EC2, Python 3.12, SQL Server 2016*
 *Optimizations: 2026-05-07 — R24 30-min intensity check; batch fetching + SPY caching (35% API call reduction)*
