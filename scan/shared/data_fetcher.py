@@ -344,7 +344,7 @@ def fetch_intraday(ticker: str) -> dict | None:
 
         # ── 30-min volume metrics (for intraday intensity check) ──────────────────────
         # Resample 1-min candles to 30-min bars to find the most recent candle's volume
-        df_30m = df.resample("30T").agg({"Volume": "sum"})
+        df_30m = df.resample("30min").agg({"Volume": "sum"})
         df_30m = df_30m[df_30m["Volume"] > 0]  # only trading periods
 
         last_30min_volume = 0

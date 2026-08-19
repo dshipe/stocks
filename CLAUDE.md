@@ -145,6 +145,12 @@ averages volume per time-of-day slot over the trailing `INTRADAY_VOL_BASELINE_LO
 (20) trading days — a genuine historical comparison. **Do not revert to a same-day
 average** — it reintroduces this exact bug.
 
+That fix itself was DOA: it used `df.resample("30T")`, and pandas 3.0 removed the `"T"`
+minute alias, so `fetch_intraday()` raised on every call, was swallowed by a
+`logger.debug`-level `except`, and returned `None` — keeping `breakout_entries` at zero
+rows for another six weeks with no visible error. Fixed 2026-08-19 by switching to
+`resample("30min")`. See `docs/breakout-scanner-plan.md` item 14.
+
 ## Plans & Rules Docs
 
 - `docs/Rules-Reference.MD` — complete rules table (R1–R46), thresholds, change log

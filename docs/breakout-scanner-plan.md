@@ -736,10 +736,37 @@ live R-multiple crosses 2R or 3R. **Alert-only — no orders are placed automati
 initial stop placement (R29) and the 10-day-MA trailing stop (R39) are unaffected and still
 handled by `schwab_stop_loss.py`.
 
+### 14. `resample("30T")` Broke on pandas 3.0 — Zero Breakouts, Still, After Item 11's Fix (2026-08-19)
+**Problem:** Item 11's fix (2026-07-08) introduced `df.resample("30T")` in `fetch_intraday()`
+to build the 30-min candle used for R24/ADR2. `"T"` was already a deprecated alias for
+minute-frequency in pandas 2.2+, and pandas 3.0 removed it outright — `resample("30T")` now
+raises `ValueError: Invalid frequency: T`. `fetch_intraday()` swallows the exception in a
+bare `except Exception` at `logger.debug` level and returns `None`, so both `check_breakout()`
+and `check_adr_breakout()` bailed out immediately (`if not intraday: return None`) for every
+single ticker, every run. `breakout_entries` stayed at zero rows straight through item 11's
+fix — the self-referential bug was gone, but nothing ever got far enough to hit it. Discovered
+by running `fetch_intraday()` directly with debug logging enabled, which surfaced the
+`ValueError` the default logging config was hiding.
+
+**Resolution:** Changed `resample("30T")` to `resample("30min")` in `fetch_intraday()`
+(`shared/data_fetcher.py`) — `"min"` works on both pandas 2.x and 3.x. `requirements.txt`
+pins `pandas>=2.0.0` with no upper bound, so a routine `pip install`/environment refresh that
+picks up pandas 3.0 is enough to trigger this; watch for the same deprecated-alias problem
+(`"H"`, `"S"`, `"L"`, `"U"`, `"N"` also removed in pandas 3.0 in favor of `"h"`, `"s"`, `"ms"`,
+`"us"`, `"ns"`) elsewhere if pandas is upgraded again.
+
+**Verified:** `fetch_intraday("AAPL")` (and NVDA, DELL) now returns a populated dict with a
+nonzero `avg_30min_volume` instead of `None`.
+
+**Lesson:** a bare `except Exception: logger.debug(...)` at the bottom of a pipeline stage is
+exactly how this stayed invisible for six weeks — a fix that itself silently fails still says
+"zero breakouts today" instead of erroring. Consider logging swallowed exceptions here at
+`warning` (as `breakout_scanner.py`'s own per-ticker `except` blocks already do) so a fetch
+that's broken for every ticker doesn't look identical to a market with no breakouts.
+
 ---
 
-*Last updated: 2026-07-08 (avg_30min_volume self-referential fix; R43/R45 market filter
-implemented; R36-R38 profit-target alerts added)*
+*Last updated: 2026-08-19 (fixed resample("30T") pandas 3.0 incompatibility — see item 14)*
 *Based on: `qullamaggie/breakouts/Rules.MD`, `qullamaggie/breakouts/Summary.MD`, `qullamaggie/breakouts/vcp_setup.MD`*
 *Implemented: 2026-04-27 on Ubuntu 24.04 AWS EC2, Python 3.12, SQL Server 2016*
 *Optimizations: 2026-05-07 — R24 30-min intensity check; batch fetching + SPY caching (35% API call reduction)*
