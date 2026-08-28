@@ -20,6 +20,11 @@ import time
 import os
 import sys
 
+# cron runs this with no LANG/PYTHONIOENCODING set, so stdout defaults to the
+# platform's ASCII/C locale — any print() with an emoji (see below) then raises
+# UnicodeEncodeError, aborting the run before later stop-loss orders are submitted.
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 # ── Configuration ──────────────────────────────────────────────────────────
 
 SCHWAB_API_BASE = "https://api.schwabapi.com/trader/v1"

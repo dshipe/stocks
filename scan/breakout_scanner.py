@@ -23,6 +23,12 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(__file__))
 
+# cron runs this with no LANG/PYTHONIOENCODING set, so stdout defaults to the
+# platform's ASCII/C locale — any print() with an emoji (see tag/print calls
+# below) then raises UnicodeEncodeError *before* the DB write, silently
+# discarding an otherwise-detected breakout via the outer except block.
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 import argparse
 import json
 import logging
