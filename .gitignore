@@ -25,6 +25,9 @@ build/
 scan/logs/
 *.log
 
+# Re-fetchable data caches
+congress_trades/data/
+
 # OS
 .DS_Store
 ._*
