@@ -6,6 +6,7 @@
 #   2. watchlist_scanner.py    — 8:00 AM EDT (12:00 UTC), Mon-Fri
 #   3. breakout_scanner.py     — every 30 min during market hours, Mon-Fri
 #   4. performance_tracker.py  — 4:30 PM EDT (20:30 UTC), Mon-Fri
+#   5. congress_trades/pelosi_alert.py — 7:00 AM EDT (11:00 UTC), every day
 #
 # Usage:
 #   chmod +x cron_setup.sh
@@ -45,6 +46,9 @@ echo "Python interpreter: $PYTHON"
 chmod +x "$SCRIPT_DIR/watchlist_scanner.py"
 chmod +x "$SCRIPT_DIR/breakout_scanner.py"
 chmod +x "$SCRIPT_DIR/performance_tracker.py"
+if [ -f "$SCRIPT_DIR/../congress_trades/pelosi_alert.py" ]; then
+    chmod +x "$SCRIPT_DIR/../congress_trades/pelosi_alert.py"
+fi
 echo "Made scripts executable."
 
 # ─── Log directory ────────────────────────────────────────────────────────────
@@ -81,6 +85,10 @@ STOP_LOSS_CRON="15 12 * * 1-5 cd $SCRIPT_DIR && $PYTHON $SCRIPT_DIR/schwab/schwa
 
 PERF_CRON="30 20 * * 1-5 cd $SCRIPT_DIR && $PYTHON $SCRIPT_DIR/performance_tracker.py >> $LOG_DIR/performance.log 2>&1"
 
+# Congress trade alert: daily, every day (disclosures aren't tied to market hours)
+CONGRESS_DIR="$SCRIPT_DIR/../congress_trades"
+PELOSI_CRON="0 11 * * * cd $CONGRESS_DIR && $PYTHON $CONGRESS_DIR/pelosi_alert.py >> $LOG_DIR/pelosi_alert.log 2>&1"
+
 # ─── Install cron jobs ────────────────────────────────────────────────────────
 echo ""
 echo "Installing the following cron jobs:"
@@ -98,6 +106,9 @@ echo ""
 echo "  [4] Performance tracker (4:30 PM EDT / 20:30 UTC, Mon-Fri):"
 echo "      $PERF_CRON"
 echo ""
+echo "  [5] Congress trade alert -- Nancy Pelosi (7:00 AM EDT / 11:00 UTC, every day):"
+echo "      $PELOSI_CRON"
+echo ""
 read -p "Confirm installation? [Y/n]: " install_confirm
 if [[ "$install_confirm" =~ ^[Nn] ]]; then
     echo "Aborted."
@@ -106,7 +117,7 @@ fi
 
 # Preserve existing crontab and append new jobs
 (
-    crontab -l 2>/dev/null | grep -v "watchlist_scanner\|breakout_scanner\|performance_tracker\|schwab_stop_loss"
+    crontab -l 2>/dev/null | grep -v "watchlist_scanner\|breakout_scanner\|performance_tracker\|schwab_stop_loss\|pelosi_alert"
     echo ""
     echo "# ── Stock Scanner (installed by cron_setup.sh) ──────────────────────"
     echo "# Schwab stop-loss: 7:30 AM EDT (11:30 UTC) weekdays"
@@ -121,6 +132,9 @@ fi
     echo ""
     echo "# Performance tracker: 4:30 PM EDT (20:30 UTC) weekdays"
     echo "$PERF_CRON"
+    echo ""
+    echo "# Congress trade alert -- Nancy Pelosi: 7:00 AM EDT (11:00 UTC), every day"
+    echo "$PELOSI_CRON"
     echo "# ────────────────────────────────────────────────────────────────────"
 ) | crontab -
 
@@ -136,4 +150,5 @@ echo "  cd $SCRIPT_DIR"
 echo "  python watchlist_scanner.py --dry-run"
 echo "  python breakout_scanner.py --force --dry-run"
 echo "  python performance_tracker.py --dry-run"
+echo "  cd $CONGRESS_DIR && python pelosi_alert.py --dry-run"
 echo ""
