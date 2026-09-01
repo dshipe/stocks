@@ -13,10 +13,26 @@ import logging
 from datetime import date, datetime
 
 import pyodbc
+import pytz
 
 import config as cfg
 
 logger = logging.getLogger(__name__)
+
+_EASTERN = pytz.timezone("America/New_York")
+
+
+def _today_est() -> date:
+    """
+    EST/EDT 'today', not the DB server's own clock. The server runs on UTC,
+    so CAST(GETDATE() AS DATE) silently rolls over to the next calendar day
+    during the ~8pm-midnight EST window while scan_date values (and the
+    actual US trading day) are still "today" -- get_todays_watchlist(),
+    get_todays_runners(), and breakout_already_logged_today() used to hit
+    this directly via GETDATE() and would return nothing (or fail to see an
+    already-logged breakout) during that window.
+    """
+    return datetime.now(_EASTERN).date()
 
 
 # ─── Connection ────────────────────────────────────────────────────────────────
@@ -179,7 +195,7 @@ def get_todays_watchlist() -> list[dict]:
     sql = f"""
         SELECT id, ticker, pivot_price, pattern_type, pattern_grade
         FROM   watchlist_entries
-        WHERE  scan_date = CAST(GETDATE() AS DATE)
+        WHERE  scan_date = ?
           AND  pattern_grade IN ({ph})
           AND  (pattern_type != 'HTF' OR pattern_grade IN ({htf_ph}))
         ORDER  BY pattern_grade ASC, pct_from_pivot ASC
@@ -187,7 +203,7 @@ def get_todays_watchlist() -> list[dict]:
     try:
         conn   = get_connection()
         cursor = conn.cursor()
-        cursor.execute(sql, allowed + htf_allowed)
+        cursor.execute(sql, [_today_est()] + allowed + htf_allowed)
         rows = cursor.fetchall()
         conn.close()
         return [
@@ -211,12 +227,12 @@ def breakout_already_logged_today(ticker: str) -> bool:
     """Return True if a breakout for this ticker has already been recorded today."""
     sql = """
         SELECT COUNT(*) FROM breakout_entries
-        WHERE  ticker = ? AND scan_date = CAST(GETDATE() AS DATE)
+        WHERE  ticker = ? AND scan_date = ?
     """
     try:
         conn   = get_connection()
         cursor = conn.cursor()
-        cursor.execute(sql, (ticker,))
+        cursor.execute(sql, (ticker, _today_est()))
         count = cursor.fetchone()[0]
         conn.close()
         return count > 0
@@ -335,6 +351,34 @@ def get_breakout_candidates_for_date(target_date) -> list[dict]:
         return []
 
 
+def get_breakout_entries_full(target_date) -> list[dict]:
+    """
+    Like get_breakout_candidates_for_date, but with the extra fields
+    paper_trading_bot.py needs to open a position and explain why: the row id
+    (for the paper_trades -> breakout_entries FK) and qualification_reasons,
+    volume_ratio, pivot_price for a human-readable entry_reason.
+    """
+    sql = """
+        SELECT id, ticker, pattern_type, pattern_grade, breakout_price, pivot_price,
+               stop_price, risk_per_share, suggested_rr_ratio, avg_daily_volume,
+               volume_ratio, qualification_reasons
+        FROM   breakout_entries
+        WHERE  scan_date = ?
+        ORDER  BY pattern_grade ASC, suggested_rr_ratio DESC
+    """
+    try:
+        conn   = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(sql, (target_date,))
+        cols = [c[0] for c in cursor.description]
+        rows = [dict(zip(cols, r)) for r in cursor.fetchall()]
+        conn.close()
+        return rows
+    except Exception as e:
+        logger.error(f"get_breakout_entries_full({target_date}): {e}")
+        return []
+
+
 def get_watchlist_candidates_for_date(target_date) -> list[dict]:
     """
     Watchlist entries for target_date that pass the grade filters (same rule as
@@ -446,13 +490,13 @@ def get_todays_runners() -> list[dict]:
         SELECT id, ticker, price_at_scan, pct_1m, pct_3m, pct_6m,
                prior_move_pct, prior_move_days
         FROM   runner_entries
-        WHERE  scan_date = CAST(GETDATE() AS DATE)
+        WHERE  scan_date = ?
         ORDER  BY pct_3m DESC
     """
     try:
         conn   = get_connection()
         cursor = conn.cursor()
-        cursor.execute(sql)
+        cursor.execute(sql, (_today_est(),))
         rows = cursor.fetchall()
         conn.close()
         return [
@@ -599,6 +643,178 @@ def upsert_runner_performance(runner_id: int, perf: dict) -> bool:
     except Exception as e:
         logger.error(f"upsert_runner_performance({runner_id}): {e}")
         return False
+
+# ─── Paper Trading (paper_trading_bot.py — simulated portfolio, no real orders) ─
+
+def insert_paper_trade(data: dict) -> int | None:
+    """
+    Insert a new paper_trades lot (a simulated BUY). Returns the new row's id.
+
+    Expected keys: ticker, shares, entry_price, entry_date, entry_reason,
+    pattern_type, pattern_grade, stop_price, risk_per_share, breakout_entry_id.
+    remaining_shares and initial_stop_price default to shares/stop_price.
+    """
+    sql = """
+        INSERT INTO paper_trades (
+            ticker, shares, remaining_shares, entry_price, entry_date,
+            entry_reason, pattern_type, pattern_grade, stop_price,
+            initial_stop_price, risk_per_share, breakout_entry_id
+        )
+        OUTPUT INSERTED.id
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """
+    try:
+        conn   = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(sql, (
+            data["ticker"], data["shares"], data["shares"],
+            data["entry_price"], data["entry_date"], data.get("entry_reason"),
+            data.get("pattern_type"), data.get("pattern_grade"),
+            data["stop_price"], data["stop_price"], data["risk_per_share"],
+            data.get("breakout_entry_id"),
+        ))
+        row = cursor.fetchone()
+        conn.commit()
+        conn.close()
+        return row[0] if row else None
+    except Exception as e:
+        logger.error(f"insert_paper_trade({data.get('ticker')}): {e}")
+        return None
+
+
+def get_open_paper_trades() -> list[dict]:
+    """Return all currently open paper_trades rows."""
+    sql = """
+        SELECT id, ticker, shares, remaining_shares, entry_price, entry_date,
+               entry_reason, pattern_type, pattern_grade, stop_price,
+               initial_stop_price, risk_per_share, hit_2r, hit_3r, breakout_entry_id
+        FROM paper_trades
+        WHERE status = 'open'
+        ORDER BY entry_date ASC, id ASC
+    """
+    try:
+        conn   = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(sql)
+        cols = [c[0] for c in cursor.description]
+        rows = [dict(zip(cols, r)) for r in cursor.fetchall()]
+        conn.close()
+        return rows
+    except Exception as e:
+        logger.error(f"get_open_paper_trades: {e}")
+        return []
+
+
+def update_paper_trade_stop(paper_trade_id: int, new_stop: float) -> bool:
+    """Raise (never the caller's job to lower) a paper_trades row's current stop."""
+    sql = "UPDATE paper_trades SET stop_price = ? WHERE id = ?"
+    try:
+        conn   = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(sql, (new_stop, paper_trade_id))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.error(f"update_paper_trade_stop({paper_trade_id}): {e}")
+        return False
+
+
+def record_paper_sale(paper_trade_id: int, ticker: str, shares_sold: int,
+                       sale_price: float, sale_date, sale_reason: str,
+                       r_multiple: float | None, realized_pnl: float | None,
+                       mark_2r: bool = False, mark_3r: bool = False) -> bool:
+    """
+    Record a SELL against a paper_trades lot, decrement remaining_shares, and
+    close the lot (status='closed') if nothing is left. Optionally flips the
+    hit_2r/hit_3r flags so a level isn't re-triggered on a later run.
+    """
+    try:
+        conn   = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO paper_trade_sales (
+                paper_trade_id, ticker, shares_sold, sale_price, sale_date,
+                sale_reason, r_multiple, realized_pnl
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (paper_trade_id, ticker, shares_sold, sale_price, sale_date,
+             sale_reason, r_multiple, realized_pnl),
+        )
+
+        set_clauses = ["remaining_shares = remaining_shares - ?"]
+        params = [shares_sold]
+        if mark_2r:
+            set_clauses.append("hit_2r = 1")
+        if mark_3r:
+            set_clauses.append("hit_3r = 1")
+        cursor.execute(
+            f"UPDATE paper_trades SET {', '.join(set_clauses)} WHERE id = ?",
+            (*params, paper_trade_id),
+        )
+        cursor.execute(
+            "UPDATE paper_trades SET status = 'closed' WHERE id = ? AND remaining_shares <= 0",
+            (paper_trade_id,),
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.error(f"record_paper_sale({ticker}, trade_id={paper_trade_id}): {e}")
+        return False
+
+
+def get_paper_trade_history(status: str | None = None) -> list[dict]:
+    """All paper_trades rows (optionally filtered by status), most recent first."""
+    sql = """
+        SELECT id, ticker, shares, remaining_shares, entry_price, entry_date,
+               entry_reason, pattern_type, pattern_grade, stop_price,
+               initial_stop_price, risk_per_share, hit_2r, hit_3r, status
+        FROM paper_trades
+    """
+    params = ()
+    if status:
+        sql += " WHERE status = ?"
+        params = (status,)
+    sql += " ORDER BY entry_date DESC, id DESC"
+    try:
+        conn   = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(sql, params)
+        cols = [c[0] for c in cursor.description]
+        rows = [dict(zip(cols, r)) for r in cursor.fetchall()]
+        conn.close()
+        return rows
+    except Exception as e:
+        logger.error(f"get_paper_trade_history: {e}")
+        return []
+
+
+def get_paper_trade_sales(paper_trade_id: int | None = None) -> list[dict]:
+    """All paper_trade_sales rows, optionally filtered to one lot, most recent first."""
+    sql = """
+        SELECT id, paper_trade_id, ticker, shares_sold, sale_price, sale_date,
+               sale_reason, r_multiple, realized_pnl
+        FROM paper_trade_sales
+    """
+    params = ()
+    if paper_trade_id is not None:
+        sql += " WHERE paper_trade_id = ?"
+        params = (paper_trade_id,)
+    sql += " ORDER BY sale_date DESC, id DESC"
+    try:
+        conn   = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(sql, params)
+        cols = [c[0] for c in cursor.description]
+        rows = [dict(zip(cols, r)) for r in cursor.fetchall()]
+        conn.close()
+        return rows
+    except Exception as e:
+        logger.error(f"get_paper_trade_sales: {e}")
+        return []
+
 
 # ─── Performance Tracking ──────────────────────────────────────────────────────
 

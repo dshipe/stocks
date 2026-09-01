@@ -269,6 +269,78 @@ ELSE
     PRINT 'Table already exists: profit_target_alerts';
 GO
 
+-- ─── paper_trades ─────────────────────────────────────────────────────────────
+-- One row per BUY made by paper_trading_bot.py. This is a simulated portfolio
+-- only -- no real orders are ever placed. Represents the original lot; partial
+-- exits (R36/R37 at 2R, R38 at 3R) are recorded separately in
+-- paper_trade_sales so one buy can be sold down in stages, ending with a
+-- final stop/trailing-stop exit for whatever remains.
+IF NOT EXISTS (
+    SELECT 1 FROM sys.objects
+    WHERE object_id = OBJECT_ID(N'[dbo].[paper_trades]')
+    AND type IN (N'U')
+)
+BEGIN
+    CREATE TABLE [dbo].[paper_trades] (
+        id                  INT IDENTITY(1,1) PRIMARY KEY,
+        ticker              VARCHAR(10)    NOT NULL,
+        shares              INT            NOT NULL,   -- original shares bought
+        remaining_shares    INT            NOT NULL,   -- still held, after any partial sells
+        entry_price         DECIMAL(10,4)  NOT NULL,
+        entry_date          DATE           NOT NULL,
+        entry_reason        VARCHAR(1000)  NULL,       -- qualification_reasons + pattern/grade/R:R
+        pattern_type        VARCHAR(20)    NULL,
+        pattern_grade       VARCHAR(5)     NULL,
+        stop_price          DECIMAL(10,4)  NOT NULL,   -- current stop (raised over time, never lowered)
+        initial_stop_price  DECIMAL(10,4)  NOT NULL,   -- R29 stop at entry, kept for reference
+        risk_per_share      DECIMAL(10,4)  NOT NULL,
+        hit_2r              BIT            NOT NULL DEFAULT 0,  -- R36/R37 partial already taken
+        hit_3r              BIT            NOT NULL DEFAULT 0,  -- R38 partial already taken
+        breakout_entry_id   INT            NULL,       -- links back to the signal that triggered this buy
+        status              VARCHAR(10)    NOT NULL DEFAULT 'open',  -- open | closed
+        created_at          DATETIME DEFAULT GETDATE(),
+
+        CONSTRAINT FK_paper_trades_breakout
+            FOREIGN KEY (breakout_entry_id) REFERENCES breakout_entries(id)
+    );
+
+    PRINT 'Created table: paper_trades';
+END
+ELSE
+    PRINT 'Table already exists: paper_trades';
+GO
+
+-- ─── paper_trade_sales ────────────────────────────────────────────────────────
+-- One row per SELL event against a paper_trades lot -- a single buy can have
+-- several rows here (2R partial, 3R partial, final stop/trailing-stop exit).
+IF NOT EXISTS (
+    SELECT 1 FROM sys.objects
+    WHERE object_id = OBJECT_ID(N'[dbo].[paper_trade_sales]')
+    AND type IN (N'U')
+)
+BEGIN
+    CREATE TABLE [dbo].[paper_trade_sales] (
+        id              INT IDENTITY(1,1) PRIMARY KEY,
+        paper_trade_id  INT            NOT NULL,
+        ticker          VARCHAR(10)    NOT NULL,
+        shares_sold     INT            NOT NULL,
+        sale_price      DECIMAL(10,4)  NOT NULL,
+        sale_date       DATE           NOT NULL,
+        sale_reason     VARCHAR(500)   NOT NULL,  -- e.g. "2R profit target (R36/R37)", "stopped out (R29)"
+        r_multiple      DECIMAL(6,2)   NULL,       -- realized R-multiple at time of this sale
+        realized_pnl    DECIMAL(12,2)  NULL,
+        created_at      DATETIME DEFAULT GETDATE(),
+
+        CONSTRAINT FK_paper_trade_sales_trade
+            FOREIGN KEY (paper_trade_id) REFERENCES paper_trades(id)
+    );
+
+    PRINT 'Created table: paper_trade_sales';
+END
+ELSE
+    PRINT 'Table already exists: paper_trade_sales';
+GO
+
 -- ─── Migrations (idempotent ALTER TABLE ADD — for tables that already existed
 -- in production before a column was introduced) ──────────────────────────────
 
