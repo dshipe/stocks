@@ -57,6 +57,7 @@ from shared.db_writer import (
     insert_paper_trade,
     record_paper_sale,
     update_paper_trade_stop,
+    _today_est,
 )
 from shared.cloudwatch_logging import enable_cloudwatch_logging
 
@@ -223,7 +224,7 @@ def main():
     parser.add_argument("--date", metavar="YYYY-MM-DD", default=None, help="Replay a specific date's breakout signals (default: today)")
     args = parser.parse_args()
 
-    target_date = date.today()
+    target_date = _today_est()
     if args.date:
         try:
             target_date = datetime.strptime(args.date, "%Y-%m-%d").date()
