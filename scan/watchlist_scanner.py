@@ -54,6 +54,7 @@ from shared.criteria import (
 )
 from shared.db_writer import insert_watchlist_entry, insert_runner_entry, test_connection
 from shared.telegram_notify import send_watchlist_summary, send_runners_summary
+from shared.cloudwatch_logging import enable_cloudwatch_logging
 
 # ─── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -62,6 +63,7 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
+enable_cloudwatch_logging("watchlist_scanner")
 
 
 # ─── Main Scanner ──────────────────────────────────────────────────────────────

@@ -58,6 +58,9 @@ from shared.db_writer import (
     record_paper_sale,
     update_paper_trade_stop,
 )
+from shared.cloudwatch_logging import enable_cloudwatch_logging
+
+enable_cloudwatch_logging("paper_trading_bot")
 
 SMA_PERIOD = 10
 PROFIT_TARGETS = [

@@ -40,6 +40,7 @@ from shared.db_writer import (
     test_connection,
 )
 from shared.data_fetcher import fetch_history
+from shared.cloudwatch_logging import enable_cloudwatch_logging
 
 # ─── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -48,6 +49,7 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
+enable_cloudwatch_logging("performance_tracker")
 
 
 # ─── Helpers ───────────────────────────────────────────────────────────────────

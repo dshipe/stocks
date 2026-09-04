@@ -37,6 +37,9 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scan"))
 from shared.telegram_notify import _send as send_telegram  # noqa: E402  (reuses existing bot config)
+from shared.cloudwatch_logging import enable_cloudwatch_logging  # noqa: E402
+
+enable_cloudwatch_logging("pelosi_alert")
 
 DATA_URL = "https://raw.githubusercontent.com/TattooedHead/house-stock-watcher-data/main/data/all_transactions.json"
 STATE_DIR = os.path.join(os.path.dirname(__file__), "data")

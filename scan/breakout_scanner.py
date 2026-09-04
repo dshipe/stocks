@@ -66,6 +66,7 @@ from shared.db_writer import (
     insert_breakout_entry,
     test_connection,
 )
+from shared.cloudwatch_logging import enable_cloudwatch_logging
 
 # ─── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -74,6 +75,7 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
+enable_cloudwatch_logging("breakout_scanner")
 
 
 # ─── Global Cache for Market Context (avoid 163+ redundant fetches) ─────────────

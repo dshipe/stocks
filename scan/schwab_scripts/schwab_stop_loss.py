@@ -25,6 +25,10 @@ import sys
 # UnicodeEncodeError, aborting the run before later stop-loss orders are submitted.
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from shared.cloudwatch_logging import enable_cloudwatch_logging
+enable_cloudwatch_logging("schwab_stop_loss")
+
 # ── Configuration ──────────────────────────────────────────────────────────
 
 SCHWAB_API_BASE = "https://api.schwabapi.com/trader/v1"
