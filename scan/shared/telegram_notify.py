@@ -177,14 +177,22 @@ def send_breakout_alert(breakout: dict) -> bool:
                   pattern_type, pattern_grade, prior_move_pct, prior_move_days,
                   stop_price, suggested_rr_ratio
     """
-    ticker    = breakout.get("ticker", "?")
-    price     = breakout.get("breakout_price", 0)
-    pivot     = breakout.get("pivot_price", 0)
-    vol_ratio = breakout.get("volume_ratio", 0)
-    pattern   = breakout.get("pattern_type", "")
-    grade     = breakout.get("pattern_grade", "?")
-    move_pct  = breakout.get("prior_move_pct", 0)
-    move_days = breakout.get("prior_move_days", 0)
+    # `or 0`/`or ""`, not `.get(key, default)` -- the ADR-momentum breakout path
+    # (see breakout_scanner.py's _build_adr_breakout_entry) explicitly sets
+    # prior_move_pct/prior_move_days to None (there's no "prior explosive move"
+    # concept for that path). dict.get(key, default) only substitutes the
+    # default when the key is MISSING, not when it's present-with-None, so
+    # every ADR-path breakout alert crashed here with "unsupported format
+    # string passed to NoneType.__format__" -- found live via CloudWatch logs
+    # right after the breakout_entries insert itself started succeeding.
+    ticker    = breakout.get("ticker") or "?"
+    price     = breakout.get("breakout_price") or 0
+    pivot     = breakout.get("pivot_price") or 0
+    vol_ratio = breakout.get("volume_ratio") or 0
+    pattern   = breakout.get("pattern_type") or ""
+    grade     = breakout.get("pattern_grade") or "?"
+    move_pct  = breakout.get("prior_move_pct") or 0
+    move_days = breakout.get("prior_move_days") or 0
     stop      = breakout.get("stop_price")
     rr        = breakout.get("suggested_rr_ratio")
 
