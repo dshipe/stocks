@@ -65,6 +65,7 @@ from shared.db_writer import (
     breakout_already_logged_today,
     insert_breakout_entry,
     test_connection,
+    _today_est,
 )
 from shared.cloudwatch_logging import enable_cloudwatch_logging
 
@@ -163,6 +164,31 @@ def send_notification(ticker: str, breakout: dict, entry: dict) -> None:
 
 # ─── ADR Breakout Entry Builder ────────────────────────────────────────────────
 
+def _grade_adr_momentum(adr_mult: float) -> str:
+    """
+    Map an ADR-momentum multiple to a standard A+/A/B/C grade.
+
+    **FIX (2026-09-09):** pattern_grade used to be set directly to a
+    descriptive string like "1.8x ADR" (see qualification_reasons for that
+    detail instead). Two problems: (1) breakout_entries.pattern_grade is
+    VARCHAR(2) -- every ADR-path insert failed with SQL error 8152 "String or
+    binary data would be truncated," so no ADR-momentum breakout ever made it
+    into the DB even after check_adr_breakout started correctly firing. (2)
+    select_trades.py/paper_trading_bot.py rank candidates by
+    `ORDER BY pattern_grade ASC`, which assumes A+/A/B/C -- a string like
+    "0.9x ADR" would sort ahead of "A+" (ASCII '0' < 'A'), always ranking ADR
+    trades first regardless of quality. Bands are relative to
+    MIN_ADR_BREAKOUT_MULT (the qualifying floor, default 0.5x).
+    """
+    if adr_mult >= 2.0:
+        return "A+"
+    if adr_mult >= 1.0:
+        return "A"
+    if adr_mult >= 0.75:
+        return "B"
+    return "C"
+
+
 def _build_adr_breakout_entry(ticker: str, adr_result: dict, df,
                                sp500_context: dict,
                                watchlist_entry_id=None,
@@ -185,7 +211,7 @@ def _build_adr_breakout_entry(ticker: str, adr_result: dict, df,
     rr_ratio       = round((breakout_price * 0.15) / risk_per_share, 2) if risk_per_share > 0 else 0
 
     return {
-        "scan_date":                date.today(),
+        "scan_date":                _today_est(),
         "ticker":                   ticker,
         "breakout_price":           breakout_price,
         "pivot_price":              adr_result["pivot_price"],   # prev close
@@ -207,7 +233,7 @@ def _build_adr_breakout_entry(ticker: str, adr_result: dict, df,
         "risk_per_share":           risk_per_share,
         "suggested_rr_ratio":       rr_ratio,
         "pattern_type":             "ADR_MOMENTUM",
-        "pattern_grade":            f"{adr_result['adr_mult']:.1f}x ADR",
+        "pattern_grade":            _grade_adr_momentum(adr_result["adr_mult"]),
         "is_episodic_pivot":        False,
         "catalyst_notes":           None,
         "sp500_above_50d_ma":       sp500_context.get("sp500_above_50d_ma"),
@@ -314,7 +340,7 @@ def check_ticker_breakout(watchlist_entry: dict,
     # Use pre-fetched market context (shared across all stocks)
 
     return {
-        "scan_date":                date.today(),
+        "scan_date":                _today_est(),
         "ticker":                   ticker,
         "breakout_price":           breakout["breakout_price"],
         "pivot_price":              breakout["pivot_price"],
@@ -416,7 +442,7 @@ def check_runner_breakout(runner_entry: dict,
     # Use pre-fetched market context (shared across all stocks)
 
     return {
-        "scan_date":                date.today(),
+        "scan_date":                _today_est(),
         "ticker":                   ticker,
         "breakout_price":           breakout["breakout_price"],
         "pivot_price":              breakout["pivot_price"],
@@ -463,7 +489,7 @@ def main():
     try:
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     except Exception:
-        now_str = str(date.today())
+        now_str = str(_today_est())
 
     print(f"\n{'='*65}")
     print(f"  BREAKOUT SCAN — {now_str} EST")
