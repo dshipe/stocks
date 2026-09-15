@@ -5,34 +5,45 @@ placed; this maintains a simulated portfolio in the paper_trades /
 paper_trade_sales tables and records every decision with a reason, so the
 whole history is auditable later.
 
-Runs once daily, after market close (see cron_setup.sh), in two passes:
+Runs every 30 minutes during market hours, ~2 minutes after each
+breakout_scanner run (see cron_setup.sh), in two passes:
 
   1. MANAGE existing open positions (checked first, before deploying new
      capital) — for every open paper_trades lot:
        a. R36/R37 — at 2R profit, sell 40% of the ORIGINAL shares, move the
           stop to breakeven (entry price). One-time, tracked via hit_2r.
        b. R38     — at 3R profit, sell another 25% of the ORIGINAL shares.
-          One-time, tracked via hit_3r. (a) and (b) can both fire the same
-          day if price gaps straight past 3R.
-       c. R39     — trail the stop toward the 10-day SMA of daily closes,
-          same rule and same only-ever-raise behavior as schwab_stop_loss.py.
-          Applies to every open position regardless of hit_2r, mirroring the
-          real-money script exactly.
-       d. Stop check — if today's close is at/below the (possibly just-
-          raised) stop, sell all remaining shares. Reason distinguishes the
-          initial R29 stop from a raised R39 trailing stop.
+          One-time, tracked via hit_3r. (a) and (b) can both fire in the
+          same run if price gaps straight past 3R.
+       c. R39     — trail the stop toward the 10-day SMA of daily closes
+          (the SMA itself is still a daily indicator -- only the check
+          against it now happens intraday), same rule and same only-ever-
+          raise behavior as schwab_stop_loss.py. Applies to every open
+          position regardless of hit_2r, mirroring the real-money script.
+       d. Stop check — if the current price is at/below the (possibly
+          just-raised) stop, sell all remaining shares. Reason distinguishes
+          the initial R29 stop from a raised R39 trailing stop.
 
   2. DEPLOY new capital — today's confirmed breakout_entries (Stage-5
      signals), ranked grade-then-R/R exactly like select_trades.py, sized by
      the same R33 (account %) / R34 (ADV %) caps, skipping any ticker already
      held open and stopping once MAX_CONCURRENT_POSITIONS or ACCOUNT_SIZE is
      exhausted -- accounting for capital already committed to step 1's
-     survivors, not starting from a blank account each day.
+     survivors, not starting from a blank account each run.
 
-Caveat this does NOT fix: all prices are daily closes (no true intraday fill
-simulation) -- a stop or profit-target "hit" here means today's close crossed
-the level, not that a real order would have filled at that exact price. Same
-approximation trade_simulator.py and check_profit_targets.py already use.
+**FIX (2026-09-15):** used to run once daily after close, so both buys and
+stop-outs only happened once a day regardless of what the market did in
+between -- a stock that spiked, alerted, and completely reversed intraday
+(XHLD) got "bought" that evening at the stale alert-time price, hours after
+it stopped being available, with its stop already blown through before the
+paper position even opened. get_current_price() already used live intraday
+prices when the market's open (fetch_intraday()) and this whole script is
+idempotent per run -- the once-daily schedule was the actual bug. Now buys
+happen within ~30 min of the alert and stops are checked at the same
+cadence, both during 9:30 AM-4:00 PM ET. Prices are still not a perfect
+intraday fill simulation (a stop "hit" means the price *at this 30-min
+check* crossed the level, not that a real order would have filled at that
+exact instant), but the gap is now minutes, not hours.
 
 Usage:
     python paper_trading_bot.py

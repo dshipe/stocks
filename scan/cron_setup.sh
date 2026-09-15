@@ -6,7 +6,7 @@
 #   2. watchlist_scanner.py    — 8:00 AM EDT (12:00 UTC), Mon-Fri
 #   3. breakout_scanner.py     — every 30 min during market hours, Mon-Fri
 #   4. performance_tracker.py  — 4:30 PM EDT (20:30 UTC), Mon-Fri
-#   5. paper_trading_bot.py     — 4:32 PM EDT (20:32 UTC), Mon-Fri
+#   5. paper_trading_bot.py     — every 30 min, 9:32 AM-4:02 PM EDT, Mon-Fri
 #   6. congress_trades/pelosi_alert.py — 7:00 AM EDT (11:00 UTC), every day
 #
 # Usage:
@@ -87,10 +87,24 @@ STOP_LOSS_CRON="15 12 * * 1-5 cd $SCRIPT_DIR && $PYTHON $SCRIPT_DIR/schwab/schwa
 
 PERF_CRON="30 20 * * 1-5 cd $SCRIPT_DIR && $PYTHON $SCRIPT_DIR/performance_tracker.py >> $LOG_DIR/performance.log 2>&1"
 
-# Paper trading bot: after market close, weekdays -- manages open paper
-# positions (2R/3R scale-outs, trailing stop, stop-outs) then deploys new
-# capital into today's confirmed breakout_entries. Simulated only, no real orders.
-PAPER_BOT_CRON="32 20 * * 1-5 cd $SCRIPT_DIR && $PYTHON $SCRIPT_DIR/paper_trading_bot.py >> $LOG_DIR/paper_trading_bot.log 2>&1"
+# Paper trading bot: every 30 min during market hours, 2 min after each
+# breakout_scanner run so that run's new breakout_entries rows are already
+# committed -- manages open paper positions (2R/3R scale-outs, trailing stop,
+# stop-outs) using live intraday prices, then deploys new capital into
+# today's confirmed breakout_entries. Simulated only, no real orders.
+#
+# **FIX (2026-09-15):** used to run once, after close (20:32 UTC) -- both
+# buys and stop-outs only happened once a day regardless of what the market
+# actually did in between. A stock (XHLD) spiked, breakout_scanner alerted
+# on it mid-session, then it completely reversed intraday; by the time this
+# job ran that evening it "bought" at the stale alert-time price, hours
+# after that price had stopped being available, and the stop-loss had
+# already been blown through before the position even opened on paper. The
+# script's own logic already used live intraday prices when the market's
+# open (get_current_price() -> fetch_intraday()) and is idempotent per run
+# -- the once-a-day schedule was the actual problem, not the code.
+PAPER_BOT_CRON_1="2,32 14-20 * * 1-5 cd $SCRIPT_DIR && $PYTHON $SCRIPT_DIR/paper_trading_bot.py >> $LOG_DIR/paper_trading_bot.log 2>&1"
+PAPER_BOT_CRON_2="2 21 * * 1-5 cd $SCRIPT_DIR && $PYTHON $SCRIPT_DIR/paper_trading_bot.py >> $LOG_DIR/paper_trading_bot.log 2>&1"
 
 # Congress trade alert: daily, every day (disclosures aren't tied to market hours)
 CONGRESS_DIR="$SCRIPT_DIR/../congress_trades"
@@ -113,8 +127,9 @@ echo ""
 echo "  [4] Performance tracker (4:30 PM EDT / 20:30 UTC, Mon-Fri):"
 echo "      $PERF_CRON"
 echo ""
-echo "  [5] Paper trading bot -- simulated only (4:32 PM EDT / 20:32 UTC, Mon-Fri):"
-echo "      $PAPER_BOT_CRON"
+echo "  [5] Paper trading bot -- simulated only (every 30 min, 9:32 AM-4:02 PM EDT, Mon-Fri):"
+echo "      $PAPER_BOT_CRON_1"
+echo "      $PAPER_BOT_CRON_2"
 echo ""
 echo "  [6] Congress trade alert -- Nancy Pelosi (7:00 AM EDT / 11:00 UTC, every day):"
 echo "      $PELOSI_CRON"
@@ -143,8 +158,9 @@ fi
     echo "# Performance tracker: 4:30 PM EDT (20:30 UTC) weekdays"
     echo "$PERF_CRON"
     echo ""
-    echo "# Paper trading bot -- simulated only: 4:32 PM EDT (20:32 UTC) weekdays"
-    echo "$PAPER_BOT_CRON"
+    echo "# Paper trading bot -- simulated only: every 30 min, 9:32 AM-4:02 PM EDT weekdays"
+    echo "$PAPER_BOT_CRON_1"
+    echo "$PAPER_BOT_CRON_2"
     echo ""
     echo "# Congress trade alert -- Nancy Pelosi: 7:00 AM EDT (11:00 UTC), every day"
     echo "$PELOSI_CRON"
