@@ -179,7 +179,26 @@ def deploy_new_capital(today: date, committed_capital: float, open_ticker_count:
             print(f"    {ticker:<7} skipped — MAX_CONCURRENT_POSITIONS ({cfg.MAX_CONCURRENT_POSITIONS}) reached")
             continue
 
-        sized = size_candidate({"breakout_price": c["breakout_price"], "avg_daily_volume": c["avg_daily_volume"]}, account_size)
+        # Fill at the CURRENT price, not breakout_price (the price at the moment
+        # breakout_scanner detected it, intraday). Buying only happens once a day
+        # in this batch step, hours after detection -- for most stocks that gap is
+        # negligible, but a volatile mover can completely reverse in the meantime.
+        # Confirmed live: XHLD detected at $14.76, still "bought" at $14.76 by this
+        # step even though it had already crashed to a $8.92 close by then -- a
+        # fill no real order could ever have gotten, which made its stop-loss
+        # meaningless (the "entry" was already far below the stop).
+        current_price, _ = get_current_price(ticker)
+        if current_price is None:
+            print(f"    {ticker:<7} skipped — could not fetch current price")
+            continue
+        stop_price = float(c["stop_price"])
+        if current_price <= stop_price:
+            print(f"    {ticker:<7} skipped — current price ${current_price:.2f} already at/below "
+                  f"stop ${stop_price:.2f} (moved too far since detection)")
+            continue
+        risk_per_share = round(current_price - stop_price, 4)
+
+        sized = size_candidate({"breakout_price": current_price, "avg_daily_volume": c["avg_daily_volume"]}, account_size)
         shares = sized["shares"]
         position_size = sized["position_size"]
         if shares <= 0:
@@ -189,25 +208,28 @@ def deploy_new_capital(today: date, committed_capital: float, open_ticker_count:
             print(f"    {ticker:<7} skipped — would exceed remaining account capital")
             continue
 
+        price_note = (
+            f" (detected at ${c['breakout_price']:.2f})" if abs(current_price - c["breakout_price"]) > 0.01 else ""
+        )
         reason = (
-            f"{c['pattern_type']}/{c['pattern_grade']} breakout at ${c['breakout_price']:.2f} "
+            f"{c['pattern_type']}/{c['pattern_grade']} breakout{price_note}, filled at ${current_price:.2f} "
             f"(pivot ${c['pivot_price']:.2f}), {c['volume_ratio']:.1f}x avg volume. "
             f"Target R:R {c['suggested_rr_ratio']}:1. {c.get('qualification_reasons') or ''}"
         ).strip()
 
-        print(f"    {ticker:<7} BUY {shares} @ ${c['breakout_price']:.2f} (${position_size:,.0f}, "
+        print(f"    {ticker:<7} BUY {shares} @ ${current_price:.2f}{price_note} (${position_size:,.0f}, "
               f"{sized['binding_rule']}){' [DRY RUN]' if dry_run else ''}")
         if not dry_run:
             insert_paper_trade({
                 "ticker": ticker,
                 "shares": shares,
-                "entry_price": c["breakout_price"],
+                "entry_price": current_price,
                 "entry_date": today,
                 "entry_reason": reason,
                 "pattern_type": c["pattern_type"],
                 "pattern_grade": c["pattern_grade"],
-                "stop_price": c["stop_price"],
-                "risk_per_share": c["risk_per_share"],
+                "stop_price": stop_price,
+                "risk_per_share": risk_per_share,
                 "breakout_entry_id": c["id"],
             })
 
