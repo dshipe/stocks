@@ -103,70 +103,79 @@ def manage_open_positions(today: date, dry_run: bool) -> dict:
 
     for pos in open_trades:
         ticker = pos["ticker"]
-        current_price, df = get_current_price(ticker)
-        if current_price is None:
-            print(f"    {ticker:<7} could not fetch price — skipping this run")
-            committed_capital += pos["remaining_shares"] * float(pos["entry_price"])
-            continue
-
-        risk_per_share = float(pos["risk_per_share"])
-        entry_price = float(pos["entry_price"])
-        r_multiple = (current_price - entry_price) / risk_per_share if risk_per_share > 0 else 0
-        remaining = pos["remaining_shares"]
-        stop = float(pos["stop_price"])
-
-        print(f"    {ticker:<7} entry=${entry_price:.2f} now=${current_price:.2f} "
-              f"R={r_multiple:.2f} stop=${stop:.2f} remaining={remaining}")
-
-        # ── (a)/(b) profit-target partials ──────────────────────────────────
-        for r_level, pct, flag, reason in PROFIT_TARGETS:
-            if pos[flag] or r_multiple < r_level or remaining <= 0:
+        try:
+            current_price, df = get_current_price(ticker)
+            if current_price is None:
+                print(f"    {ticker:<7} could not fetch price — skipping this run")
+                committed_capital += pos["remaining_shares"] * float(pos["entry_price"])
                 continue
-            shares_to_sell = min(remaining, round(pos["shares"] * pct / 100))
-            if shares_to_sell <= 0:
-                continue
-            realized_pnl = shares_to_sell * (current_price - entry_price)
-            print(f"      -> {reason}: sell {shares_to_sell} @ ${current_price:.2f}"
-                  f"{' [DRY RUN]' if dry_run else ''}")
-            if not dry_run:
-                record_paper_sale(
-                    pos["id"], ticker, shares_to_sell, current_price, today, reason,
-                    r_multiple, realized_pnl,
-                    mark_2r=(flag == "hit_2r"), mark_3r=(flag == "hit_3r"),
-                )
-                if flag == "hit_2r":
-                    stop = entry_price  # move to breakeven
-                    update_paper_trade_stop(pos["id"], stop)
-            remaining -= shares_to_sell
-            partial_count += 1
 
-        if remaining <= 0:
-            closed_count += 1
-            continue
+            risk_per_share = float(pos["risk_per_share"])
+            entry_price = float(pos["entry_price"])
+            r_multiple = (current_price - entry_price) / risk_per_share if risk_per_share > 0 else 0
+            remaining = pos["remaining_shares"]
+            stop = float(pos["stop_price"])
 
-        # ── (c) R39 trailing stop — 10-day SMA, only ever raised ────────────
-        if df is not None and len(df) >= SMA_PERIOD:
-            sma = round(float(df["Close"].tail(SMA_PERIOD).mean()), 4)
-            if sma > stop:
-                print(f"      -> R39 trailing stop raised ${stop:.2f} -> ${sma:.2f}{' [DRY RUN]' if dry_run else ''}")
+            print(f"    {ticker:<7} entry=${entry_price:.2f} now=${current_price:.2f} "
+                  f"R={r_multiple:.2f} stop=${stop:.2f} remaining={remaining}")
+
+            # ── (a)/(b) profit-target partials ──────────────────────────────
+            for r_level, pct, flag, reason in PROFIT_TARGETS:
+                if pos[flag] or r_multiple < r_level or remaining <= 0:
+                    continue
+                shares_to_sell = min(remaining, round(pos["shares"] * pct / 100))
+                if shares_to_sell <= 0:
+                    continue
+                realized_pnl = shares_to_sell * (current_price - entry_price)
+                print(f"      -> {reason}: sell {shares_to_sell} @ ${current_price:.2f}"
+                      f"{' [DRY RUN]' if dry_run else ''}")
                 if not dry_run:
-                    update_paper_trade_stop(pos["id"], sma)
-                stop = sma
+                    record_paper_sale(
+                        pos["id"], ticker, shares_to_sell, current_price, today, reason,
+                        r_multiple, realized_pnl,
+                        mark_2r=(flag == "hit_2r"), mark_3r=(flag == "hit_3r"),
+                    )
+                    if flag == "hit_2r":
+                        stop = entry_price  # move to breakeven
+                        update_paper_trade_stop(pos["id"], stop)
+                remaining -= shares_to_sell
+                partial_count += 1
 
-        # ── (d) stop check ──────────────────────────────────────────────────
-        if current_price <= stop:
-            was_raised = stop > float(pos["initial_stop_price"])
-            reason = (
-                f"stopped out — closed at ${current_price:.2f}, "
-                f"at/below {'trailing (R39)' if was_raised else 'initial (R29)'} stop ${stop:.2f}"
-            )
-            realized_pnl = remaining * (current_price - entry_price)
-            print(f"      -> {reason}: sell {remaining} @ ${current_price:.2f}{' [DRY RUN]' if dry_run else ''}")
-            if not dry_run:
-                record_paper_sale(pos["id"], ticker, remaining, current_price, today, reason, r_multiple, realized_pnl)
-            closed_count += 1
-        else:
-            committed_capital += remaining * entry_price
+            if remaining <= 0:
+                closed_count += 1
+                continue
+
+            # ── (c) R39 trailing stop — 10-day SMA, only ever raised ────────
+            if df is not None and len(df) >= SMA_PERIOD:
+                sma = round(float(df["Close"].tail(SMA_PERIOD).mean()), 4)
+                if sma > stop:
+                    print(f"      -> R39 trailing stop raised ${stop:.2f} -> ${sma:.2f}{' [DRY RUN]' if dry_run else ''}")
+                    if not dry_run:
+                        update_paper_trade_stop(pos["id"], sma)
+                    stop = sma
+
+            # ── (d) stop check ────────────────────────────────────────────────
+            if current_price <= stop:
+                was_raised = stop > float(pos["initial_stop_price"])
+                reason = (
+                    f"stopped out — closed at ${current_price:.2f}, "
+                    f"at/below {'trailing (R39)' if was_raised else 'initial (R29)'} stop ${stop:.2f}"
+                )
+                realized_pnl = remaining * (current_price - entry_price)
+                print(f"      -> {reason}: sell {remaining} @ ${current_price:.2f}{' [DRY RUN]' if dry_run else ''}")
+                if not dry_run:
+                    record_paper_sale(pos["id"], ticker, remaining, current_price, today, reason, r_multiple, realized_pnl)
+                closed_count += 1
+            else:
+                committed_capital += remaining * entry_price
+        except Exception as e:
+            # A single bad position must never take down the whole run and
+            # silently skip checking every OTHER open position -- this is
+            # exactly how the 2026-09-15 Decimal/float bug turned into a
+            # full-day outage: one unhandled exception killed the process on
+            # every single cron invocation that day.
+            print(f"    {ticker:<7} ERROR managing position: {e}")
+            committed_capital += pos["remaining_shares"] * float(pos["entry_price"])
 
     return {"closed": closed_count, "partial": partial_count, "committed_capital": committed_capital}
 
@@ -183,70 +192,79 @@ def deploy_new_capital(today: date, committed_capital: float, open_ticker_count:
 
     for c in candidates:
         ticker = c["ticker"]
-        if ticker in held_tickers:
-            print(f"    {ticker:<7} skipped — already holding an open position")
-            continue
-        if slots_used >= cfg.MAX_CONCURRENT_POSITIONS:
-            print(f"    {ticker:<7} skipped — MAX_CONCURRENT_POSITIONS ({cfg.MAX_CONCURRENT_POSITIONS}) reached")
-            continue
+        try:
+            if ticker in held_tickers:
+                print(f"    {ticker:<7} skipped — already holding an open position")
+                continue
+            if slots_used >= cfg.MAX_CONCURRENT_POSITIONS:
+                print(f"    {ticker:<7} skipped — MAX_CONCURRENT_POSITIONS ({cfg.MAX_CONCURRENT_POSITIONS}) reached")
+                continue
 
-        # Fill at the CURRENT price, not breakout_price (the price at the moment
-        # breakout_scanner detected it, intraday). Buying only happens once a day
-        # in this batch step, hours after detection -- for most stocks that gap is
-        # negligible, but a volatile mover can completely reverse in the meantime.
-        # Confirmed live: XHLD detected at $14.76, still "bought" at $14.76 by this
-        # step even though it had already crashed to a $8.92 close by then -- a
-        # fill no real order could ever have gotten, which made its stop-loss
-        # meaningless (the "entry" was already far below the stop).
-        current_price, _ = get_current_price(ticker)
-        if current_price is None:
-            print(f"    {ticker:<7} skipped — could not fetch current price")
-            continue
-        stop_price = float(c["stop_price"])
-        if current_price <= stop_price:
-            print(f"    {ticker:<7} skipped — current price ${current_price:.2f} already at/below "
-                  f"stop ${stop_price:.2f} (moved too far since detection)")
-            continue
-        risk_per_share = round(current_price - stop_price, 4)
+            # Fill at the CURRENT price, not breakout_price (the price at the
+            # moment breakout_scanner detected it, intraday). Buying only
+            # happens once a day in this batch step, hours after detection --
+            # for most stocks that gap is negligible, but a volatile mover can
+            # completely reverse in the meantime. Confirmed live: XHLD
+            # detected at $14.76, still "bought" at $14.76 by this step even
+            # though it had already crashed to a $8.92 close by then -- a
+            # fill no real order could ever have gotten, which made its
+            # stop-loss meaningless (the "entry" was already far below the
+            # stop).
+            current_price, _ = get_current_price(ticker)
+            if current_price is None:
+                print(f"    {ticker:<7} skipped — could not fetch current price")
+                continue
+            stop_price = float(c["stop_price"])
+            if current_price <= stop_price:
+                print(f"    {ticker:<7} skipped — current price ${current_price:.2f} already at/below "
+                      f"stop ${stop_price:.2f} (moved too far since detection)")
+                continue
+            risk_per_share = round(current_price - stop_price, 4)
 
-        sized = size_candidate({"breakout_price": current_price, "avg_daily_volume": c["avg_daily_volume"]}, account_size)
-        shares = sized["shares"]
-        position_size = sized["position_size"]
-        if shares <= 0:
-            print(f"    {ticker:<7} skipped — position size rounds to 0 shares")
-            continue
-        if capital_used + position_size > account_size:
-            print(f"    {ticker:<7} skipped — would exceed remaining account capital")
-            continue
+            sized = size_candidate({"breakout_price": current_price, "avg_daily_volume": c["avg_daily_volume"]}, account_size)
+            shares = sized["shares"]
+            position_size = sized["position_size"]
+            if shares <= 0:
+                print(f"    {ticker:<7} skipped — position size rounds to 0 shares")
+                continue
+            if capital_used + position_size > account_size:
+                print(f"    {ticker:<7} skipped — would exceed remaining account capital")
+                continue
 
-        price_note = (
-            f" (detected at ${c['breakout_price']:.2f})" if abs(current_price - c["breakout_price"]) > 0.01 else ""
-        )
-        reason = (
-            f"{c['pattern_type']}/{c['pattern_grade']} breakout{price_note}, filled at ${current_price:.2f} "
-            f"(pivot ${c['pivot_price']:.2f}), {c['volume_ratio']:.1f}x avg volume. "
-            f"Target R:R {c['suggested_rr_ratio']}:1. {c.get('qualification_reasons') or ''}"
-        ).strip()
+            detected_price = float(c["breakout_price"])  # pyodbc returns SQL Server DECIMAL as decimal.Decimal
+            price_note = (
+                f" (detected at ${detected_price:.2f})" if abs(current_price - detected_price) > 0.01 else ""
+            )
+            reason = (
+                f"{c['pattern_type']}/{c['pattern_grade']} breakout{price_note}, filled at ${current_price:.2f} "
+                f"(pivot ${c['pivot_price']:.2f}), {c['volume_ratio']:.1f}x avg volume. "
+                f"Target R:R {c['suggested_rr_ratio']}:1. {c.get('qualification_reasons') or ''}"
+            ).strip()
 
-        print(f"    {ticker:<7} BUY {shares} @ ${current_price:.2f}{price_note} (${position_size:,.0f}, "
-              f"{sized['binding_rule']}){' [DRY RUN]' if dry_run else ''}")
-        if not dry_run:
-            insert_paper_trade({
-                "ticker": ticker,
-                "shares": shares,
-                "entry_price": current_price,
-                "entry_date": today,
-                "entry_reason": reason,
-                "pattern_type": c["pattern_type"],
-                "pattern_grade": c["pattern_grade"],
-                "stop_price": stop_price,
-                "risk_per_share": risk_per_share,
-                "breakout_entry_id": c["id"],
-            })
+            print(f"    {ticker:<7} BUY {shares} @ ${current_price:.2f}{price_note} (${position_size:,.0f}, "
+                  f"{sized['binding_rule']}){' [DRY RUN]' if dry_run else ''}")
+            if not dry_run:
+                insert_paper_trade({
+                    "ticker": ticker,
+                    "shares": shares,
+                    "entry_price": current_price,
+                    "entry_date": today,
+                    "entry_reason": reason,
+                    "pattern_type": c["pattern_type"],
+                    "pattern_grade": c["pattern_grade"],
+                    "stop_price": stop_price,
+                    "risk_per_share": risk_per_share,
+                    "breakout_entry_id": c["id"],
+                })
 
-        capital_used += position_size
-        slots_used += 1
-        opened += 1
+            capital_used += position_size
+            slots_used += 1
+            opened += 1
+        except Exception as e:
+            # Same reasoning as manage_open_positions()'s try/except: one bad
+            # candidate must not stop every OTHER candidate that day from
+            # being considered.
+            print(f"    {ticker:<7} ERROR evaluating candidate: {e}")
 
     return opened
 
